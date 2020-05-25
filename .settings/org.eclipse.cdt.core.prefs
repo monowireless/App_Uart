@@ -1,0 +1,11 @@
+eclipse.preferences.version=1
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505.270186943/PATH/delimiter=\:
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505.270186943/PATH/operation=replace
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505.270186943/PATH/value=${workspace_loc}/../Tools/ba-elf-ba2/bin${PathDelimiter}${workspace_loc}/../Tools/ba-elf-ba2/ba-elf/bin${PathDelimiter}${workspace_loc}/../Tools/cygwin/bin${PathDelimiter}${workspace_loc}/../bin${PathDelimiter}${PATH}
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505.270186943/append=true
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505.270186943/appendContributed=false
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505/PATH/delimiter=\:
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505/PATH/operation=replace
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505/PATH/value=${workspace_loc}/../Tools/ba-elf-ba2/bin${PathDelimiter}${workspace_loc}/../Tools/ba-elf-ba2/ba-elf/bin${PathDelimiter}${workspace_loc}/../Tools/cygwin/bin${PathDelimiter}${workspace_loc}/../bin${PathDelimiter}${PATH}
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505/append=true
+environment/project/cdt.managedbuild.toolchain.gnu.cygwin.base.1601921899.2032547505/appendContributed=false
