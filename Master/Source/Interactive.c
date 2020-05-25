@@ -1,3 +1,7 @@
+/* Copyright (C) 2017 Mono Wireless Inc. All Rights Reserved.    *
+ * Released under MW-SLA-*J,*E (MONO WIRELESS SOFTWARE LICENSE   *
+ * AGREEMENT).                                                   */
+
 /*
  * Interactive.c
  *
@@ -84,7 +88,6 @@ static void vSerPrintChannelMask(uint32 u32mask) {
 bool_t bConfig_SetCustomDefaults(tsFlashApp *p) {
 	tsFlash *pFlashCustom = NULL;
 
-#ifdef JN516x
 	tsFlash sFlashCustomDefault;
 
 	uint32 u32addr = *(uint32*)(0x80020); // u32addr は４バイト境界にアラインされているはずだが・・・
@@ -113,44 +116,6 @@ bool_t bConfig_SetCustomDefaults(tsFlashApp *p) {
 			}
 		}
 	}
-#endif
-#ifdef JN514x
-	uint8 au8buff[sizeof(tsFlash)+8], *pBuff;
-
-	if (bAHI_FlashInit(FLASH_TYPE, NULL) == TRUE) {
-		uint8 au8head[16];
-
-		// ヘッダの読み出し(フラッシュのデータサイズの取得)
-		if (bAHI_FullFlashRead(0, 16, au8head)) {
-			uint32 u32len = *(uint32*)(&au8head[8]);
-
-			pBuff = (uint8*)((uint32)(au8buff + 3) & 0xFFFFFFFC); // ４バイト境界に配置
-			pFlashCustom = (tsFlash *)pBuff;
-
-			// V_PRINT("** %08X"LB, u32len);
-			if (bAHI_FullFlashRead(0x30 + u32len - 3, sizeof(tsFlash) + 3, pBuff)) {
-				int i;
-
-				for (i = 0; i < 4; i++) {
-					// １バイトシフトして再チェック
-					// ４バイト境界を意識してロードしないとエラーになる
-					int j;
-					for (j = 0; j < sizeof(tsFlash) + 3; j++) {
-						pBuff[j] = pBuff[j+1];
-					}
-
-					if (bFlash_DataValidateHeader(pFlashCustom)) {
-						break;
-					}
-				}
-
-				if (i == 4) {
-					pFlashCustom = NULL;
-				}
-			}
-		}
-	}
-#endif
 
 	if (pFlashCustom) {
 		*p = pFlashCustom->sData; // データを上書き
@@ -299,7 +264,7 @@ static void vConfig_SyncUnsaved(tsFlash *pFlash, tsFlashApp *pAppData) {
 				pAppData->au8ChatHandleName,
 				FLASH_APP_HANDLE_NAME_LEN);
 
-			pFlash->sData.au8AesKey[FLASH_APP_HANDLE_NAME_LEN] = 0;
+			pFlash->sData.au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] = 0;
 		}
 	}
 
@@ -371,20 +336,11 @@ void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 'x': // チャネルの設定
-#ifdef JN514x
-		V_PRINT("Rf Power/Retry/Kbps"
-				LB " X0YZ X=Kbps(0:250,1:500,2:667)"
-				LB "      Y=Retry(0:default,F:0,1-9:count"
-				LB "      Z=Power(3:Max,2,1,0:Min)"
-				LB "Input: "
-				);
-#elif defined(JN516x)
 		V_PRINT("Rf Power/Retry"
 				LB "   YZ Y=Retry(0:default,F:0,1-9:count"
 				LB "      Z=Power(3:Max,2,1,0:Min)"
 				LB "Input: "
 		);
-#endif
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 4, E_APPCONF_POWER);
 		break;
 
@@ -474,6 +430,7 @@ void vProcessInputByte(uint8 u8Byte) {
 		_C {
 			vConfig_SetDefaults(&sAppData.sConfig_UnSaved);
 			u16HoldUpdateScreen = 1;
+			bInhibitUpdate = FALSE;
 		}
 		break;
 
@@ -507,7 +464,7 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case '#': // info
 		_C {
-			V_PRINT("*** ToCoNet(ver%08X) ***" LB, ToCoNet_u32GetVersion());
+			V_PRINT("*** TWELITE NET(ver%08X) ***" LB, ToCoNet_u32GetVersion());
 			V_PRINT("* AppID %08x, LongAddr, %08x, ShortAddr %04x, Tk: %d" LB,
 					sToCoNet_AppContext.u32AppId, ToCoNet_u32GetSerial(), sToCoNet_AppContext.u16ShortAddress, u32TickCount_ms);
 			if (sAppData.bFlashLoaded) {
@@ -611,11 +568,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 				uint8 u8ch = u32string2dec(p_token[i], strlen((const char *)p_token[i]));
 
 				if (u8ch >= 11
-#if defined(JN514x)
-						&& u8ch <= 25
-#elif defined(JN516x)
 						&& u8ch <= 26
-#endif
 				) {
 					uint32 u32bit = (1UL << u8ch);
 					if (!(u32bit & u32chmask)) {

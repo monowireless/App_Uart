@@ -1,21 +1,6 @@
-/****************************************************************************
- * (C) Tokyo Cosmos Electric, Inc. (TOCOS) - all rights reserved.
- *
- * Condition to use: (refer to detailed conditions in Japanese)
- *   - The full or part of source code is limited to use for TWE (TOCOS
- *     Wireless Engine) as compiled and flash programmed.
- *   - The full or part of source code is prohibited to distribute without
- *     permission from TOCOS.
- *
- * 利用条件:
- *   - 本ソースコードは、別途ソースコードライセンス記述が無い限り東京コスモス電機が著作権を
- *     保有しています。
- *   - 本ソースコードは、無保証・無サポートです。本ソースコードや生成物を用いたいかなる損害
- *     についても東京コスモス電機は保証致しません。不具合等の報告は歓迎いたします。
- *   - 本ソースコードは、東京コスモス電機が販売する TWE シリーズ上で実行する前提で公開
- *     しています。他のマイコン等への移植・流用は一部であっても出来ません。
- *
- ****************************************************************************/
+/* Copyright (C) 2017 Mono Wireless Inc. All Rights Reserved.    *
+ * Released under MW-SLA-*J,*E (MONO WIRELESS SOFTWARE LICENSE   *
+ * AGREEMENT).                                                   */
 
 /****************************************************************************/
 /***        Include files                                                 ***/
@@ -90,7 +75,7 @@
 
 /** TOCONET の DUPCHK を使用する */
 #define USE_TOCONET_DUPCHK
-#define FIX_DUPCHK_L106S // ToCoNet 1.0.6 での振る舞いに対応する
+//#define FIX_DUPCHK_L106S // ToCoNet 1.0.6 での振る舞いに対応する
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -420,9 +405,6 @@ void cbAppColdStart(bool_t bStart) {
 		// sToCoNet_AppContext.u8Channel = sAppData.sFlash.sData.u8ch; // チャネルマネージャで決定するので設定不要
 		sToCoNet_AppContext.u32ChMask = sAppData.sFlash.sData.u32chmask;
 		sToCoNet_AppContext.u8TxPower = sAppData.sFlash.sData.u16power & 0x000F; // 出力設定
-#ifdef JN514x
-		sToCoNet_AppContext.u8HigherDataRate = (sAppData.sFlash.sData.u16power & 0xF000) >> 12; // 高速モード
-#endif
 
 		// ROLE から eNwkMode を設定
 		if (APPCONF_ROLE() <= E_APPCONF_ROLE_MAC_NODE_MAX) {
@@ -824,10 +806,12 @@ void cbToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 					&& (bmChanged & PORT_INPUT_MASK)) // I1-I4の入力が有った
 				{
 					sAppData.u8PortNow =
-								(bmPorts & (1UL << PORT_INPUT1)) ? 1 : 0
-							|	(bmPorts & (1UL << PORT_INPUT2)) ? 2 : 0
-							|	(bmPorts & (1UL << PORT_INPUT3)) ? 4 : 0
-							|	(bmPorts & (1UL << PORT_INPUT4)) ? 8 : 0;
+								((bmPorts & (1UL << PORT_INPUT1)) ? 1 : 0)
+							|	((bmPorts & (1UL << PORT_INPUT2)) ? 2 : 0)
+							|	((bmPorts & (1UL << PORT_INPUT3)) ? 4 : 0)
+							|	((bmPorts & (1UL << PORT_INPUT4)) ? 8 : 0);
+
+					DBGOUT(5, LB"PortNow = %02X/%032b", sAppData.u8PortNow, bmPorts );
 
 					if (IS_LOGICAL_ID_PARENT(sAppData.u8AppLogicalId)) {
 						// ショートアドレスの再設定
@@ -1052,11 +1036,7 @@ PRIVATE void vInitHardware(int f_warm_start) {
 	}
 
 	// タイマの未使用ポートの解放（汎用ＩＯとして使用するため）
-#ifdef JN516x
 	vAHI_TimerFineGrainDIOControl(0x7F); // タイマー関連のピンを使わない
-#else
-	vAHI_TimerFineGrainDIOControl(0x7F); // タイマー関連のピンを使わない
-#endif
 
 	// メイン(64fps)タイマ管理構造体の初期化
 	memset(&sTimerApp, 0, sizeof(sTimerApp));
@@ -1460,7 +1440,7 @@ void vHandleSerialInput() {
 						}
 
 						if (u8res == E_SERCMD_PLUS3_VERBOSE_OFF) {
-							vfPrintf(&sSerStream, "!INF EXIT INTERACTIVE MODE (SUB_PORT)."LB);
+							vfPrintf(&sSerStream, "!INF EXIT INTERACTIVE MODE (SUB_PORT). "LB);
 						}
 					} else {
 						; // コマンド解釈モードではない
@@ -1595,7 +1575,12 @@ static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
 		if (pSerCmd->u8state != E_SERCMD_ERROR && sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
 			bool_t bComp = FALSE;
 
+			if (pSerCmd->u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
+				// パケットサイズ超えた時点で送信条件とする
+				bComp = TRUE;
+			} else
 			if (IS_APPCONF_OPT_TX_TRIGGER_CHAR()) {
+				// 区切り文字による送信判定
 				if (u8Byte == sAppData.sFlash.sData.u16uart_lnsep) { // 区切り文字の設定かつ区切り文字
 					if (sAppData.sFlash.sData.u8uart_lnsep_minpkt && (pSerCmd->u16len < sAppData.sFlash.sData.u8uart_lnsep_minpkt)) {
 						bComp = FALSE; // パケット長の設定があるときにその長さに達していない
@@ -1604,9 +1589,8 @@ static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
 					}
 				}
 			} else {
-				if (pSerCmd->u16len >= SERCMD_SER_PKTLEN_MINIMUM
-					|| (sAppData.sFlash.sData.u8uart_lnsep_minpkt && pSerCmd->u16len >= sAppData.sFlash.sData.u8uart_lnsep_minpkt)
-				) {
+				// その他、最小データによる判定
+				if (sAppData.sFlash.sData.u8uart_lnsep_minpkt && pSerCmd->u16len >= sAppData.sFlash.sData.u8uart_lnsep_minpkt) {
 					bComp = TRUE;
 				}
 			}

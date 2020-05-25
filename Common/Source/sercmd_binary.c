@@ -1,13 +1,6 @@
-/****************************************************************************
- * (C) Tokyo Cosmos Electric, Inc. (TOCOS) - 2012 all rights reserved.
- *
- * Condition to use:
- *   - The full or part of source code is limited to use for TWE (TOCOS
- *     Wireless Engine) as compiled and flash programmed.
- *   - The full or part of source code is prohibited to distribute without
- *     permission from TOCOS.
- *
- ****************************************************************************/
+/* Copyright (C) 2017 Mono Wireless Inc. All Rights Reserved.    *
+ * Released under MW-SLA-*J,*E (MONO WIRELESS SOFTWARE LICENSE   *
+ * AGREEMENT).                                                   */
 
 /****************************************************************************/
 /***        Include files                                                 ***/

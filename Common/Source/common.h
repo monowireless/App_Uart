@@ -1,21 +1,6 @@
-/****************************************************************************
- * (C) Tokyo Cosmos Electric, Inc. (TOCOS) - 2013 all rights reserved.
- *
- * Condition to use: (refer to detailed conditions in Japanese)
- *   - The full or part of source code is limited to use for TWE (TOCOS
- *     Wireless Engine) as compiled and flash programmed.
- *   - The full or part of source code is prohibited to distribute without
- *     permission from TOCOS.
- *
- * 利用条件:
- *   - 本ソースコードは、別途ソースコードライセンス記述が無い限り東京コスモス電機が著作権を
- *     保有しています。
- *   - 本ソースコードは、無保証・無サポートです。本ソースコードや生成物を用いたいかなる損害
- *     についても東京コスモス電機は保証致しません。不具合等の報告は歓迎いたします。
- *   - 本ソースコードは、東京コスモス電機が販売する TWE シリーズ上で実行する前提で公開
- *     しています。他のマイコン等への移植・流用は一部であっても出来ません。
- *
- ****************************************************************************/
+/* Copyright (C) 2017 Mono Wireless Inc. All Rights Reserved.    *
+ * Released under MW-SLA-*J,*E (MONO WIRELESS SOFTWARE LICENSE   *
+ * AGREEMENT).                                                   */
 
 #ifndef COMMON_H_
 #define COMMON_H_
@@ -29,7 +14,6 @@
 /*
  * IOポートの定義
  */
-#if defined(JN516x)
 #define PORT_OUT1 18
 #define PORT_OUT2 19
 #define PORT_OUT3 4
@@ -48,63 +32,6 @@
 
 #define PORT_CONF_EX1 0
 #define PORT_CONF_EX2 1
-#elif defined(JN514x)
-
-#if defined(CONFIG_000_0) || defined(CONFIG_000_1)
-#define PORT_OUT1 16 // KIT LED1
-#define PORT_OUT2 17 // KIT LED2
-#define PORT_OUT3 18 // KIT LED3
-#define PORT_OUT4 19 // KIT LED4
-
-#define PORT_INPUT1 9 // KIT SW1
-#define PORT_INPUT2 10 // KIT SW2
-#define PORT_INPUT3 11 // KIT SW3 (PWM2 OUT)
-#define PORT_INPUT4 20 // KIT SW4
-
-#define PORT_CONF1 0
-#define PORT_CONF2 8
-#define PORT_CONF3 12
-
-#define PORT_BAUD 1
-#elif defined(CONFIG_001)
-#define PORT_OUT1 16 // KIT LED1
-#define PORT_OUT2 17 // KIT LED2
-#define PORT_OUT3 18 // KIT LED3
-#define PORT_OUT4 19 // KIT LED4
-
-#define PORT_INPUT1 9 // KIT SW1
-#define PORT_INPUT2 10 // KIT SW2
-//#define PORT_INPUT3 5 // RTS(output) 外側がハイインピーダンスなので、外部回路を付属してもOK
-#define PORT_INPUT3 11 // KIT SW3 (PWM2 OUT)
-#define PORT_INPUT4 20 // KIT SW4
-
-#define PORT_CONF1 0
-#define PORT_CONF2 1
-#define PORT_CONF3 8
-
-#define PORT_BAUD 12
-#else
-#define PORT_OUT1 16 // KIT LED1
-#define PORT_OUT2 17 // KIT LED2
-#define PORT_OUT3 18 // KIT LED3
-#define PORT_OUT4 19 // KIT LED4
-
-#define PORT_INPUT1 9 // KIT SW1
-#define PORT_INPUT2 10 // KIT SW2
-//#define PORT_INPUT3 5 // RTS(output) 外側がハイインピーダンスなので、外部回路を付属してもOK
-#define PORT_INPUT3 11 // KIT SW3 (PWM2 OUT)
-#define PORT_INPUT4 20 // KIT SW4
-
-#define PORT_CONF1 0
-#define PORT_CONF2 1
-#define PORT_CONF3 8
-
-#define PORT_BAUD 12
-#endif
-
-// PWM1 out  DIO13
-// PWM2 out DIO11
-#endif
 
 #define PORT_OUT_MASK ((1UL << PORT_OUT1) | (1UL << PORT_OUT2) | (1UL << PORT_OUT3) | (1UL << PORT_OUT4))
 #define PORT_INPUT_MASK ((1UL << PORT_INPUT1) | (1UL << PORT_INPUT2) | (1UL << PORT_INPUT3) | (1UL << PORT_INPUT4))
@@ -114,13 +41,8 @@
 #define PORT_UART_TX 6
 #define PORT_UART_RX 7
 
-#ifdef JN516x
 #define PORT_UART_TX_SUB 14
 #define PORT_UART_RX_SUB 15
-#else
-#define PORT_UART_TX_SUB 19
-#define PORT_UART_RX_SUB 20
-#endif
 
 #ifdef USE_DIO_SLEEP
 // スリープ起床のためのポート

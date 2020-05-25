@@ -1,8 +1,8 @@
 #########################################################################
 #
-# MODULE:   TOCOS-00001-IEEE802.15.4-I/O-Switch
+# MODULE:   MONOWIRELESS-00001-IEEE802.15.4-I/O-Switch
 #
-# DESCRIPTION: TCS_00001_Coord MakeFile
+# DESCRIPTION: WM_00001_Coord MakeFile
 #
 ############################################################################
 # 
