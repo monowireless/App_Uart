@@ -88,7 +88,7 @@ enum {
  * UART の副ポートと主ポートを入れ替える
  */
 #define E_APPCONF_OPT_UART_SWAP_PORT 0x40000UL
-#define IS_APPCONF_OPT_UART_SWAP_PORT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_UART_SLAVE_OUT) //!< E_APPCONF_OPT_UART_SLAVE_OUT 判定 @ingroup FLASH
+#define IS_APPCONF_OPT_UART_SWAP_PORT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_UART_SWAP_PORT) //!< E_APPCONF_OPT_UART_SLAVE_OUT 判定 @ingroup FLASH
 
 /**
  * LayreNetwork で中継機が直上の経路のみに接続する

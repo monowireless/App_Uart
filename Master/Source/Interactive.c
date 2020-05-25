@@ -38,31 +38,138 @@ tsInpStr_Context sSerInpStr;
 
 extern uint16 u16HoldUpdateScreen;
 
+/**  @ingroup MASTER
+ * UART のオプションを表示する
+ */
+static void vSerPrintUartOpt(uint8 u8conf) {
+	const uint8 au8name_bit[] = { '8', '7' };
+	const uint8 au8name_parity[] = { 'N', 'O', 'E' };
+	const uint8 au8name_stop[] = { '1', '2' };
+
+	V_PRINT("%c%c%c",
+				au8name_bit[u8conf & APPCONF_UART_CONF_WORDLEN_MASK ? 1 : 0],
+				au8name_parity[u8conf & APPCONF_UART_CONF_PARITY_MASK],
+				au8name_stop[u8conf & APPCONF_UART_CONF_STOPBIT_MASK ? 1 : 0]);
+}
+
+/** @ingroup MASTER
+ * チャネル一覧を表示する
+ */
+static void vSerPrintChannelMask(uint32 u32mask) {
+	uint8 au8ch[MAX_CHANNELS], u8ch_idx = 0;
+	int i;
+	memset(au8ch,0,MAX_CHANNELS);
+
+	for (i = 11; i <= 26; i++) {
+		if (u32mask & (1UL << i)) {
+			if (u8ch_idx) {
+				V_PUTCHAR(',');
+			}
+			V_PRINT("%d", i);
+			au8ch[u8ch_idx++] = i;
+		}
+
+		if (u8ch_idx == MAX_CHANNELS) {
+			break;
+		}
+	}
+}
+
+/** @ingroup FLASH
+ * カスタムデフォルトがロードできるならロードし、設定データエリアに書き込む
+ *
+ * @param p 書き込むデータエリア
+ * @return TRUE: ロード出来た FALSE: データなし
+ */
+bool_t bConfig_SetCustomDefaults(tsFlashApp *p) {
+	tsFlash *pFlashCustom = NULL;
+
+#ifdef JN516x
+	tsFlash sFlashCustomDefault;
+
+	uint32 u32addr = *(uint32*)(0x80020); // u32addr は４バイト境界にアラインされているはずだが・・・
+
+	// u32addr のチェック
+	if (u32addr > (32*1024*5 - 1024) || (u32addr & 0x3)) {
+		// サイズはフラッシュの容量内で、
+		// u32addr はバイト境界にアラインされるはず
+		return FALSE;
+	}
+
+	// u32addr を示すフラッシュ領域をチェックしてみる
+	pFlashCustom = (tsFlash *)(u32addr + 0x80000);
+	if (!bFlash_DataValidateHeader(pFlashCustom)) {
+		pFlashCustom = NULL;
+	}
+	// バイト境界にデータが無い場合（最大３バイト遡ってチェックする)
+	int i;
+	for (i = 1; i < 4; i++) {
+		if (!pFlashCustom) {
+			memcpy((void*)&sFlashCustomDefault, (void*)(u32addr + 0x80000 - i), sizeof(tsFlash));
+
+			if (bFlash_DataValidateHeader(&sFlashCustomDefault)) {
+				pFlashCustom = &sFlashCustomDefault;
+				break;
+			}
+		}
+	}
+#endif
+#ifdef JN514x
+	uint8 au8buff[sizeof(tsFlash)+8], *pBuff;
+
+	if (bAHI_FlashInit(FLASH_TYPE, NULL) == TRUE) {
+		uint8 au8head[16];
+
+		// ヘッダの読み出し(フラッシュのデータサイズの取得)
+		if (bAHI_FullFlashRead(0, 16, au8head)) {
+			uint32 u32len = *(uint32*)(&au8head[8]);
+
+			pBuff = (uint8*)((uint32)(au8buff + 3) & 0xFFFFFFFC); // ４バイト境界に配置
+			pFlashCustom = (tsFlash *)pBuff;
+
+			// V_PRINT("** %08X"LB, u32len);
+			if (bAHI_FullFlashRead(0x30 + u32len - 3, sizeof(tsFlash) + 3, pBuff)) {
+				int i;
+
+				for (i = 0; i < 4; i++) {
+					// １バイトシフトして再チェック
+					// ４バイト境界を意識してロードしないとエラーになる
+					int j;
+					for (j = 0; j < sizeof(tsFlash) + 3; j++) {
+						pBuff[j] = pBuff[j+1];
+					}
+
+					if (bFlash_DataValidateHeader(pFlashCustom)) {
+						break;
+					}
+				}
+
+				if (i == 4) {
+					pFlashCustom = NULL;
+				}
+			}
+		}
+	}
+#endif
+
+	if (pFlashCustom) {
+		*p = pFlashCustom->sData; // データを上書き
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+}
+
 /** @ingroup FLASH
  * フラッシュ設定構造体をデフォルトに巻き戻す。
  * @param p 構造体へのアドレス
  */
 void vConfig_SetDefaults(tsFlashApp *p) {
-	tsFlash *pFlashCustom = NULL;
-#ifdef JN516x
-	uint32 u32addr = *(uint32*)(0x80020);
-
-	if (u32addr <= (32*1024*5 - 1024)) { // 159KB 以上の場合はスキップ
-		// 実際のアドレスは 0x80000 から始まる
-		pFlashCustom = (tsFlash *)(u32addr + 0x80000);
-
-		if (!bFlash_DataValidateHeader(pFlashCustom)) {
-			pFlashCustom = NULL;
-		}
-	}
-
-#endif
-
-	if (pFlashCustom) {
-		// ファームウェアからのデータロードが出来ました
-		*p = pFlashCustom->sData;
+	if (bConfig_SetCustomDefaults(p)) {
+		// カスタムデフォルト
 		sAppData.bCustomDefaults = TRUE;
-	} else {
+	} else
+	{
 		// コンパイルデフォルト
 		p->u32appid = APP_ID;
 		p->u32chmask = CHMASK;
@@ -76,7 +183,10 @@ void vConfig_SetDefaults(tsFlashApp *p) {
 		p->u8parity = 0; // none
 
 		p->u8uart_mode = UART_MODE_DEFAULT; // chat
-		p->u8uart_lnsep = 0x0D; // 行セパレータ
+		p->u16uart_lnsep = 0x0D; // 行セパレータ
+
+		p->u8uart_lnsep_minpkt = 1; // 最小パケットサイズ
+		p->u8uart_txtrig_delay = 100; // 待ち時間による送信トリガー
 
 		memset(p->au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
 		memset(p->au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
@@ -173,8 +283,14 @@ static void vConfig_SyncUnsaved(tsFlash *pFlash, tsFlashApp *pAppData) {
 	if (pAppData->u8uart_mode != 0xFF) {
 		pFlash->sData.u8uart_mode = pAppData->u8uart_mode;
 	}
-	if (pAppData->u8uart_lnsep != 0xFF) {
-		pFlash->sData.u8uart_lnsep = pAppData->u8uart_lnsep;
+	if (pAppData->u16uart_lnsep != 0xFFFF) {
+		pFlash->sData.u16uart_lnsep = pAppData->u16uart_lnsep;
+	}
+	if (pAppData->u8uart_lnsep_minpkt != 0xFF) {
+		pFlash->sData.u8uart_lnsep_minpkt = pAppData->u8uart_lnsep_minpkt;
+	}
+	if (pAppData->u8uart_txtrig_delay != 0xFF) {
+		pFlash->sData.u8uart_txtrig_delay = pAppData->u8uart_txtrig_delay;
 	}
 
 	{
@@ -223,25 +339,10 @@ void vConfig_SaveAndReset() {
 	vConfig_UnSetAll(&sAppData.sConfig_UnSaved);
 	vWait(100000);
 
-	V_PRINT("!INF RESET SYSTEM...");
+	V_PRINT("!INF RESET SYSTEM..." LB);
 	vWait(1000000);
 	vAHI_SwReset();
 }
-
-/**  @ingroup MASTER
- * UART のオプションを表示する
- */
-static void vSerPrintUartOpt(uint8 u8conf) {
-	const uint8 au8name_bit[] = { '8', '7' };
-	const uint8 au8name_parity[] = { 'N', 'O', 'E' };
-	const uint8 au8name_stop[] = { '1', '2' };
-
-	V_PRINT("%c%c%c",
-				au8name_bit[u8conf & APPCONF_UART_CONF_WORDLEN_MASK ? 1 : 0],
-				au8name_parity[u8conf & APPCONF_UART_CONF_PARITY_MASK],
-				au8name_stop[u8conf & APPCONF_UART_CONF_STOPBIT_MASK ? 1 : 0]);
-}
-
 
 /** @ingroup MASTER
  * １バイト入力コマンドの処理
@@ -249,11 +350,14 @@ static void vSerPrintUartOpt(uint8 u8conf) {
  */
 void vProcessInputByte(uint8 u8Byte) {
 	static uint8 u8lastbyte = 0xFF;
+	bool_t bInhibitUpdate = TRUE;
 
 	switch (u8Byte) {
-	case 0x0d:
+	case 0x0d: // LF
+	case 0x0c: // Ctrl+L
 		// 画面の書き換え
 		u16HoldUpdateScreen = 1;
+		bInhibitUpdate = FALSE;
 		break;
 
 	case 'a': // set application ID
@@ -285,7 +389,7 @@ void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 'i': // set application role
-		V_PRINT("Input Device ID (DEC:1-100): ");
+		V_PRINT("Input Device ID (0:parent, 1-100: child): ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_DEC, 3, E_APPCONF_ID);
 		break;
 
@@ -322,8 +426,12 @@ void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 'k':
-		V_PRINT("Input Line Separator (Transparant mode): ");
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 2, E_APPCONF_UART_LINE_SEP);
+		V_PRINT("Tx Triggger in Transparent,Chat no prompt mode"LB);
+		V_PRINT("  {delim(HEX)},{minumum size(1-80)},{time out[ms](10-200)}"LB);
+		V_PRINT("  e.g. 20,8,100 (space, 8bytes incl delim, 100ms)"LB);
+		V_PRINT("Input: ");
+
+		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 16, E_APPCONF_UART_LINE_SEP);
 		break;
 
 	case 'h':
@@ -353,6 +461,7 @@ void vProcessInputByte(uint8 u8Byte) {
 			V_PRINT("!INF CLEAR SAVE AREA.");
 			bFlash_Erase(FLASH_SECTOR_NUMBER - 1); // SECTOR ERASE
 
+			V_PRINT("!INF RESET SYSTEM." LB);
 			vWait(1000000);
 			vAHI_SwReset();
 		} else {
@@ -391,7 +500,7 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case '!':
 		// リセット
-		V_PRINT("!INF RESET SYSTEM.");
+		V_PRINT("!INF RESET SYSTEM." LB);
 		vWait(1000000);
 		vAHI_SwReset();
 		break;
@@ -447,11 +556,17 @@ void vProcessInputByte(uint8 u8Byte) {
 		}
 		break;
 
+
 	default:
+		bInhibitUpdate = FALSE;
 		break;
 	}
 
 	u8lastbyte = u8Byte;
+
+	if (bInhibitUpdate) {
+		u16HoldUpdateScreen = 0;
+	}
 }
 
 /** @ingroup MASTER
@@ -485,44 +600,28 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			// チャネルマスク（リスト）を入力解釈する。
 			//  11,15,19 のように１０進数を区切って入力する。
 			//  以下では区切り文字は任意で MAX_CHANNELS 分処理したら終了する。
-
-			uint8 b = 0, e = 0, i = 0, n_ch = 0;
 			uint32 u32chmask = 0; // 新しいチャネルマスク
+			uint8 *p_token[MAX_CHANNELS];
 
-			V_PRINT(LB"-> ");
+			V_PRINT("-> ", sizeof(p_token));
+			uint8 u8num = u8StrSplitTokens(pu8str, p_token, MAX_CHANNELS);
 
-			for (i = 0; i <= pContext->u8Idx; i++) {
-				if (pu8str[i] < '0' || pu8str[i] > '9') {
-					e = i;
-					uint8 u8ch = 0;
+			int i, j = 0;
+			for (i = 0; i < u8num; i++) {
+				uint8 u8ch = u32string2dec(p_token[i], strlen((const char *)p_token[i]));
 
-					// 最低２文字あるときに処理
-					if (e - b > 0) {
-						u8ch = u32string2dec(&pu8str[b], e - b);
-						if (u8ch >= 11
+				if (u8ch >= 11
 #if defined(JN514x)
-								&& u8ch <= 25
+						&& u8ch <= 25
 #elif defined(JN516x)
-								&& u8ch <= 26
+						&& u8ch <= 26
 #endif
-								) {
-							if (n_ch) {
-								V_PUTCHAR(',');
-							}
-							V_PRINT("%d", u8ch);
-							u32chmask |= (1UL << u8ch);
-
-							n_ch++;
-							if (n_ch >= MAX_CHANNELS) {
-								break;
-							}
-						}
+				) {
+					uint32 u32bit = (1UL << u8ch);
+					if (!(u32bit & u32chmask)) {
+						u32chmask |= u32bit;
+						j++;
 					}
-					b = i + 1;
-				}
-
-				if (pu8str[i] == 0x0) {
-					break;
 				}
 			}
 
@@ -530,6 +629,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 				V_PRINT("(ignored)");
 			} else {
 				sAppData.sConfig_UnSaved.u32chmask = u32chmask;
+				vSerPrintChannelMask(u32chmask);
 			}
 
 			V_PRINT(LB);
@@ -558,8 +658,14 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 		_C {
 			uint32 u32val = u32string2dec(pu8str, u8idx);
 			V_PRINT(LB"-> ");
-			if (u32val <= 0x7F || u32val == LOGICAL_ID_REPEATER) {
+			if (u32val == 0x00) {
+				sAppData.sConfig_UnSaved.u8id = 121;
+			} else if (u32val == 0x78) {
+				sAppData.sConfig_UnSaved.u8id = 0; // 未設定
+			} else {
 				sAppData.sConfig_UnSaved.u8id = u32val; // ０は未設定！
+			}
+			if (u32val != 0xFF) {
 				V_PRINT("%d(0x%02x)"LB, u32val, u32val);
 			} else {
 				V_PRINT("(ignored)"LB);
@@ -677,16 +783,49 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			}
 		}
 		break;
-
 	case E_APPCONF_UART_LINE_SEP:
 		_C {
-			uint32 u32val = u32string2hex(pu8str, u8idx);
+			#define NUM_LINE_SEP 3
+			uint8 *p_tokens[NUM_LINE_SEP];
+			uint8 u8n_tokens = u8StrSplitTokens(pu8str, p_tokens, NUM_LINE_SEP);
+
 			V_PRINT(LB"-> ");
-			sAppData.sConfig_UnSaved.u8uart_lnsep = u32val;
-			V_PRINT("0x%02x"LB, u32val);
+
+			int i;
+			for (i = 0; i < NUM_LINE_SEP; i++) {
+				uint8 l = strlen((const char *)p_tokens[i]);
+
+				if ((u8n_tokens >= i + 1) && l) {
+					uint32 u32val;
+					if (i == 0) {
+						u32val = u32string2hex(p_tokens[i], l);
+						if (u32val <= 0xFF) {
+							sAppData.sConfig_UnSaved.u16uart_lnsep = u32val;
+							V_PRINT("0x%02x,", u32val);
+						} else {
+							V_PRINT("(ignored),");
+						}
+					} else if (i == 1) { // 最小パケットサイズ(DELIM 含む)
+						u32val = u32string2dec(p_tokens[i], l);
+						if (u32val && u32val <= SERCMD_SER_PKTLEN_MINIMUM) {
+							sAppData.sConfig_UnSaved.u8uart_lnsep_minpkt = u32val;
+							V_PRINT("%d,", u32val);
+						} else {
+							V_PRINT("(ignored),");
+						}
+					} else if (i == 2) { // 無入力区間による送信トリガー
+						u32val = u32string2dec(p_tokens[i], l);
+						if (u32val >= 10 || u32val == 0) {
+							sAppData.sConfig_UnSaved.u8uart_txtrig_delay = u32val;
+							V_PRINT("%d", u32val);
+						} else {
+							V_PRINT("(ignored)");
+						}
+					}
+				}
+			}
 		}
 		break;
-
 	case E_APPCONF_CRYPT_MODE:
 		_C {
 			if (pu8str[0] == '0') {
@@ -745,7 +884,6 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			V_PRINT("(%08x)"LB, u32val);
 		}
 		break;
-
 	default:
 		break;
 	}
@@ -754,16 +892,19 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 	u16HoldUpdateScreen = 96; // 1.5sec
 }
 
+
+
 /** @ingroup MASTER
  * インタラクティブモードの画面を再描画する。
  */
 void vSerUpdateScreen() {
 	V_PRINT("\e[2J\e[H"); // CLEAR SCREEN
-	V_PRINT("--- CONFIG/TWE UART APP V%d-%02d-%d/SID=0x%08x/LID=0x%02x %s---"LB,
+	V_PRINT("--- CONFIG/TWE UART APP V%d-%02d-%d/SID=0x%08x/LID=0x%02x %c%c ---"LB,
 			VERSION_MAIN, VERSION_SUB, VERSION_VAR,
 			ToCoNet_u32GetSerial(),
 			sAppData.u8AppLogicalId,
-			sAppData.bCustomDefaults ? "C " : ""
+			sAppData.bCustomDefaults ? 'C' : '-',
+			sAppData.bFlashLoaded ? 'E' : '-'
 	);
 
 	// Application ID
@@ -788,28 +929,8 @@ void vSerUpdateScreen() {
 	}
 
 	V_PRINT(" c: set Channels (");
-	{
-		// find channels in ch_mask
-		uint8 au8ch[MAX_CHANNELS], u8ch_idx = 0;
-		int i;
-		memset(au8ch,0,MAX_CHANNELS);
-		uint32 u32mask = FL_IS_MODIFIED_u32(chmask) ? FL_UNSAVE_u32(chmask) : FL_MASTER_u32(chmask);
-		for (i = 11; i <= 26; i++) {
-			if (u32mask & (1UL << i)) {
-				if (u8ch_idx) {
-					V_PUTCHAR(',');
-				}
-				V_PRINT("%d", i);
-				au8ch[u8ch_idx++] = i;
-			}
-
-			if (u8ch_idx == MAX_CHANNELS) {
-				break;
-			}
-		}
-	}
-	V_PRINT(")%c" LB,
-			FL_IS_MODIFIED_u32(chmask) ? '*' : ' ');
+	vSerPrintChannelMask(FL_IS_MODIFIED_u32(chmask) ? FL_UNSAVE_u32(chmask) : FL_MASTER_u32(chmask));
+	V_PRINT(")%c" LB, FL_IS_MODIFIED_u32(chmask) ? '*' : ' ');
 
 	V_PRINT(" x: set RF Conf (%x)%c" LB,
 			FL_IS_MODIFIED_u16(power) ? FL_UNSAVE_u16(power) : FL_MASTER_u16(power),
@@ -837,7 +958,7 @@ void vSerUpdateScreen() {
 	{
 		uint8 u8dat = FL_IS_MODIFIED_u8(parity) ? FL_UNSAVE_u8(parity) : FL_MASTER_u8(parity);
 
-		V_PRINT(" p: set UART option (");
+		V_PRINT(" B: set UART option (");
 		vSerPrintUartOpt(u8dat);
 		V_PRINT(")%c" LB,
 					FL_IS_MODIFIED_u8(parity) ? '*' : ' ');
@@ -853,9 +974,14 @@ void vSerUpdateScreen() {
 	}
 
 	if (u8mode_uart == UART_MODE_TRANSPARENT || u8mode_uart == UART_MODE_CHAT_NO_PROMPT) {
-		V_PRINT(" k: set Tx Trigger Char (0x%02x)%c" LB,
-				FL_IS_MODIFIED_u8(uart_lnsep) ? FL_UNSAVE_u8(uart_lnsep) : FL_MASTER_u8(uart_lnsep),
-				FL_IS_MODIFIED_u8(uart_lnsep) ? '*' : ' ');
+		V_PRINT(" k: set Tx Trigger (sep=0x%02x%s, min_bytes=%d%s dly=%d[ms]%s)" LB,
+				FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep),
+				FL_IS_MODIFIED_u16(uart_lnsep) ? "*" : "",
+				FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? FL_UNSAVE_u8(uart_lnsep_minpkt) : FL_MASTER_u8(uart_lnsep_minpkt),
+				FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? "*" : "",
+				FL_IS_MODIFIED_u8(uart_txtrig_delay) ? FL_UNSAVE_u8(uart_txtrig_delay) : FL_MASTER_u8(uart_txtrig_delay),
+				FL_IS_MODIFIED_u8(uart_txtrig_delay) ? "*" : ""
+		);
 	}
 
 	{

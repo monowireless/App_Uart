@@ -71,7 +71,7 @@ TARGET_TYPE=bin # for building final application
 # ToCoNet のスタックデバッグ出力を使用する場合 1 を指定します。
 # - ターゲットファイル名に _TDBG が追加されます。 
 #
-TOCONET_DEBUG ?= 1
+TOCONET_DEBUG ?= 0
 
 ##########################################################################
 ### Basic definitions (do not edit here)

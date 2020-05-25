@@ -82,15 +82,19 @@ void vSerResp_GetModuleSetting(uint32 u32setting) {
 	case E_APPCONF_CRYPT_KEY:
 		_C {
 			int i;
-			uint8 *p = sAppData.sConfig_UnSaved.au8AesKey[0] == 0xFF ? sAppData.sFlash.sData.au8AesKey : sAppData.sConfig_UnSaved.au8AesKey;
-			for (i = 0; i < 32; i++) {
+			uint8 *p = sAppData.sConfig_UnSaved.au8AesKey[FLASH_APP_AES_KEY_SIZE] == 0xFF ? sAppData.sFlash.sData.au8AesKey : sAppData.sConfig_UnSaved.au8AesKey;
+			for (i = 0; i < FLASH_APP_AES_KEY_SIZE; i++) {
 				*q++ = *p++;
 			}
 		} break;
 	case E_APPCONF_UART_LINE_SEP:
-			S_OCTET(FL_IS_MODIFIED_u8(uart_lnsep) ? FL_UNSAVE_u8(uart_lnsep) : FL_MASTER_u8(uart_lnsep)); break;
+			S_BE_WORD(FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep));
+			S_OCTET(FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? FL_UNSAVE_u8(uart_lnsep_minpkt) : FL_MASTER_u8(uart_lnsep_minpkt));
+			S_OCTET(FL_IS_MODIFIED_u8(uart_txtrig_delay) ? FL_UNSAVE_u8(uart_txtrig_delay) : FL_MASTER_u8(uart_txtrig_delay));
+			break;
 	case E_APPCONF_OPT_BITS:
-			S_BE_DWORD(FL_IS_MODIFIED_u32(Opt) ? FL_UNSAVE_u32(Opt) : FL_MASTER_u32(Opt)); break;
+		S_BE_DWORD(FL_IS_MODIFIED_u32(Opt) ? FL_UNSAVE_u32(Opt) : FL_MASTER_u32(Opt)); break;
+
 	default:
 		*r = 0xFF;
 		break;
@@ -160,21 +164,22 @@ bool_t bSerCmd_SetModuleSetting(uint8 *p, uint8 u8len) {
 
 	case E_APPCONF_CRYPT_KEY:
 		bRet = FALSE;
-		if (u8len >= 32) {
+		if (u8len >= FLASH_APP_AES_KEY_SIZE) {
 			int i;
-			uint8 u8firstbyte = G_OCTET();
-			if (u8firstbyte != 0xFF) { // 先頭バイトが 0xFF の場合は無効 (未設定時のフラグ)
-				sAppData.sConfig_UnSaved.au8AesKey[0] = u8firstbyte;
-				for (i = 1; i < 32; i++) {
-					sAppData.sConfig_UnSaved.au8AesKey[i] = G_OCTET();
-				}
+			for (i = 0; i < FLASH_APP_AES_KEY_SIZE; i++) {
+				sAppData.sConfig_UnSaved.au8AesKey[i] = G_OCTET();
 			}
+			sAppData.sConfig_UnSaved.au8AesKey[FLASH_APP_AES_KEY_SIZE] = 0;
+
 			bRet = TRUE;
 		}
 		break;
 
 	case E_APPCONF_UART_LINE_SEP:
-		if (u8len >= 1) FL_UNSAVE_u8(uart_lnsep)= G_OCTET(); else bRet = FALSE;
+		if (u8len < 2) bRet = FALSE;
+		if (u8len >= 2) FL_UNSAVE_u16(uart_lnsep)= G_BE_WORD();
+		if (u8len >= 3) FL_UNSAVE_u8(uart_lnsep_minpkt) = G_OCTET();
+		if (u8len >= 4) FL_UNSAVE_u8(uart_txtrig_delay) = G_OCTET();
 		break;
 
 	default:

@@ -60,7 +60,7 @@ extern "C" {
 
 // SERIAL BUFFERS
 #define SERCMD_SER_PKTLEN 80 //!< シリアルメッセージのデータ部の最大バイト数
-#define SERCMD_SER_PKTLEN_MINIMUM (SERCMD_SER_PKTLEN - 2) //!< 確実に１パケットに格納できるサイズ
+#define SERCMD_SER_PKTLEN_MINIMUM (SERCMD_SER_PKTLEN - 0) //!< 確実に１パケットに格納できるサイズ
 #define SERCMD_SER_PKTNUM 8 //!< シリアルメッセージの最大送信パケット数
 #define SERCMD_MAXPAYLOAD (SERCMD_SER_PKTLEN*SERCMD_SER_PKTNUM) //!< シリアルメッセージのバッファサイズ
 

@@ -45,7 +45,9 @@ typedef struct _tsFlashApp {
 
 	uint8 u8uart_mode;		//!< UART の動作モード (0:透過, 1:テキスト電文, 2:バイナリ電文)
 
-	uint8 u8uart_lnsep;		//!< UART の行セパレータ (透過モードでの伝送時)
+	uint16 u16uart_lnsep;		//!< UART の行セパレータ (透過モードでの伝送時)
+	uint8 u8uart_lnsep_minpkt; //!<  行単位送信時の最小パケットサイズ
+	uint8 u8uart_txtrig_delay; //!< Dモード時の送信トリガー時間（最小パケットサイズより優先する）
 
 	uint8 au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN + 1]; //!< チャットモードのハンドル名
 

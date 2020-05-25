@@ -65,11 +65,13 @@ void vSerResp_GetModuleAddress() {
 			| (((uint32)VERSION_VAR & 0xFF) << 0);
 
 	S_OCTET(0xDB);
+	S_OCTET(SERCMD_ID_GET_MODULE_ADDRESS);
 	S_BE_DWORD(APP_ID);
 	S_BE_DWORD(u32ver);
-	S_OCTET(SERCMD_ID_GET_MODULE_ADDRESS);
+	S_OCTET(sAppData.u8AppLogicalId);
 	S_BE_DWORD(ToCoNet_u32GetSerial());
 	S_OCTET(sAppData.bSilent);
+	S_OCTET(sAppData.bNwkUp);
 
 	sSerCmdTemp.u16len = q - sSerCmdTemp.au8data;
 	sSerCmdTemp.vOutput(&sSerCmdTemp, &sSerStream);
@@ -92,3 +94,19 @@ void vSerResp_TxEx(uint8 u8RspId, uint8 u8Status) {
 	sSerCmdTemp.vOutput(&sSerCmdTemp, &sSerStream);
 }
 
+/** @ingroup MASTER
+ * SILENTモード状態を返す
+ * @param u8RspId 応答ID
+ * @param u8Status 完了ステータス
+ */
+void vSerResp_Silent() {
+	uint8 *q = sSerCmdTemp.au8data;
+
+	S_OCTET(0xDB);
+	S_OCTET(SERCMD_ID_MODULE_CONTROL);
+	S_OCTET(SERCMD_ID_MODULE_CONTROL_INFORM_SILENT);
+	S_OCTET(sAppData.bSilent);
+
+	sSerCmdTemp.u16len = q - sSerCmdTemp.au8data;
+	sSerCmdTemp.vOutput(&sSerCmdTemp, &sSerStream);
+}

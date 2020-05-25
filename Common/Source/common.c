@@ -99,3 +99,34 @@ bool_t   SERIAL_bTxCharDuo(uint8 u8SerialPort, uint8 u8Chr) {
 	SERIAL_bTxChar(UART_PORT_SLAVE, u8Chr);
 	return TRUE;
 }
+
+/**
+ * 文字列を区切り文字で分割する。pstr は NUL 文字で分割される。
+ */
+uint8 u8StrSplitTokens(uint8 *pstr, uint8 **auptr, uint8 u8max_entry) {
+	uint8 u8num = 0;
+
+	uint8 *p = pstr;
+	if (pstr == NULL || *p == 0) {
+		return 0;
+	} else {
+
+		auptr[0] = pstr;
+		u8num = 1;
+
+		while (*p) {
+			if (*p == ',') {
+				*p = 0;
+				auptr[u8num] = p + 1;
+				u8num++;
+				if (u8num >= u8max_entry) {
+					break;
+				}
+			}
+
+			p++;
+		}
+	}
+
+	return u8num;
+}

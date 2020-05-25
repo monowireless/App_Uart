@@ -63,7 +63,7 @@
 /***        ToCoNet Definitions                                           ***/
 /****************************************************************************/
 // Select Modules (define befor include "ToCoNet.h")
-#define ToCoNet_USE_MOD_RXQUEUE_BIG
+#define ToCoNet_USE_MOD_TXRXQUEUE_BIG
 #define ToCoNet_USE_MOD_CHANNEL_MGR
 
 #ifdef NWK_LAYER
@@ -87,6 +87,9 @@
 #warning "DEBUG_RTS"
 #define DEBUG_RTS_LED 15
 #endif
+
+/** TOCONET の DUPCHK を使用する */
+#define USE_TOCONET_DUPCHK
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -159,8 +162,12 @@ tsTimerContext sTimerApp; //!< タイマー管理構造体  @ingroup MASTER
 uint8 au8SerOutBuff[128]; //!< シリアルの出力書式のための暫定バッファ  @ingroup MASTER
 tsSerCmd_Context sSerCmdTemp; //!< シリアル出力用 @ingroup MASTER
 
-tsDupChk_Context sDupChk_IoData; //!< 重複チェック(IO関連のデータ転送)  @ingroup MASTER
+#ifdef USE_TOCONET_DUPCHK
+static void vInitDupChk();
+static tsToCoNet_DupChk_Context* psDupChk = NULL; //!< 重複チェック (TOCONET ライブラリ版)
+#else
 tsDupChk_Context sDupChk_SerMsg; //!< 重複チェック(シリアル関連のデータ転送)  @ingroup MASTER
+#endif
 
 uint8 au8TxCbId_to_RespID[256]; //!< 送信パケットのコールバックIDから RespID を紐づける表 @ingroup MASTER
 
@@ -179,6 +186,16 @@ const uint8 au8UartModeToTxCmdId[] = {
 /****************************************************************************/
 /***        FUNCTIONS                                                     ***/
 /****************************************************************************/
+
+#ifdef USE_TOCONET_DUPCHK
+/**
+ * TOCONET DUPCHK の初期化
+ */
+static void vInitDupChk() {
+	TOCONET_DUPCHK_DECLARE_CONETXT(DUPCHK,40); //!< 重複チェック
+	psDupChk = ToCoNet_DupChk_psInit(DUPCHK);
+}
+#endif
 
 /** @ingroup MASTER
  * 始動時メッセージの表示
@@ -317,6 +334,10 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 		} else
 		if (eEvent == E_EVENT_TICK_SECOND) {
 			//DBGOUT(0, "*"); // １秒置きに * を表示する (デバッグ用)
+#ifdef USE_TOCONET_DUPCHK
+			// 重複チェッカのクリーンアップ
+			ToCoNet_DupChk_vClean(psDupChk);
+#endif
 		} else
 		if (eEvent == E_EVENT_TOCONET_ON_SLEEP) {
 #ifdef NWK_LAYER
@@ -376,17 +397,20 @@ void cbAppColdStart(bool_t bStart) {
 		// デフォルト値を格納する
 		vConfig_SetDefaults(&(sAppData.sFlash.sData));
 
+
 		// load flash value
-		sAppData.bFlashLoaded = bFlash_Read(&sAppData.sFlash, FLASH_SECTOR_NUMBER - 1, 0);
+		tsFlash sSettingFlash;
+		sAppData.bFlashLoaded = bFlash_Read(&sSettingFlash, FLASH_SECTOR_NUMBER - 1, 0);
 		if (sAppData.bFlashLoaded &&
-			(   sAppData.sFlash.sData.u32appkey != APP_ID
-			 || (sAppData.sFlash.sData.u32ver !=
+			(   sSettingFlash.sData.u32appkey != APP_ID
+			 || (sSettingFlash.sData.u32ver !=
 					((VERSION_MAIN<<16) | (VERSION_SUB<<8) | (VERSION_VAR))))
 			) {
 			sAppData.bFlashLoaded = FALSE;
 		}
 
 		if (sAppData.bFlashLoaded) {
+			sAppData.sFlash = sSettingFlash; // フラッシュからロードした設定を採用
 			sToCoNet_AppContext.u32AppId = sAppData.sFlash.sData.u32appid;
 			// sToCoNet_AppContext.u8Channel = sAppData.sFlash.sData.u8ch; // チャネルマネージャで決定するので設定不要
 			sToCoNet_AppContext.u32ChMask = sAppData.sFlash.sData.u32chmask;
@@ -394,9 +418,6 @@ void cbAppColdStart(bool_t bStart) {
 #ifdef JN514x
 			sToCoNet_AppContext.u8HigherDataRate = (sAppData.sFlash.sData.u16power & 0xF000) >> 12; // 高速モード
 #endif
-		} else {
-			// 念のためデフォルト値を再格納する
-			vConfig_SetDefaults(&(sAppData.sFlash.sData));
 		}
 
 		// ROLE から eNwkMode を設定
@@ -420,15 +441,24 @@ void cbAppColdStart(bool_t bStart) {
 		// ToCoNet の制御 Tick [ms]
 		sAppData.u16ToCoNetTickDelta_ms = 1000 / sToCoNet_AppContext.u16TickHz;
 
+		// チャネル数のカウント
+		int i;
+		sAppData.u8NumChannels = 0;
+		for (i = 11; i < 26; i++) {
+			if (sToCoNet_AppContext.u32ChMask & (1UL << i)) {
+				sAppData.u8NumChannels++;
+			}
+		}
+
 		// other hardware
 		vInitHardware(FALSE);
 
 		// 論理IDをフラッシュ設定した場合
 		if (sAppData.bFlashLoaded) {
-			// 子機
-			if (IS_LOGICAL_ID_CHILD(sAppData.sFlash.sData.u8id)) {
-				sAppData.u8Mode = E_IO_MODE_CHILD;
-			}
+			// 子機IDを設定した場合
+			//if (IS_LOGICAL_ID_CHILD(sAppData.sFlash.sData.u8id)) {
+			//	sAppData.u8Mode = E_IO_MODE_CHILD; // 子機に強制する場合はコメントアウト
+			//}
 			// 親機
 			if (sAppData.sFlash.sData.u8id == 121) {
 				sAppData.u8Mode = E_IO_MODE_PARNET; // 親機のモード番号
@@ -509,8 +539,11 @@ void cbAppColdStart(bool_t bStart) {
 		ToCoNet_vDebugLevel(0);
 
 		// その他の初期化
-		DUPCHK_vInit(&sDupChk_IoData);
-		DUPCHK_vInit(&sDupChk_SerMsg);
+#ifdef USE_TOCONET_DUPCHK
+		vInitDupChk();
+#else
+		 DUPCHK_vInit(&sDupChk_SerMsg);
+#endif
 
 		// イベント処理関数を稼働させる
 		ToCoNet_Event_Register_State_Machine(vProcessEvCore); // main state machine
@@ -553,8 +586,12 @@ void cbAppWarmStart(bool_t bStart) {
 		ToCoNet_vDebugLevel(0);
 
 		// その他の初期化
-		DUPCHK_vInit(&sDupChk_IoData);
+
+#ifdef USE_TOCONET_DUPCHK
+		vInitDupChk();
+#else
 		DUPCHK_vInit(&sDupChk_SerMsg);
+#endif
 
 		// MAC start
 		ToCoNet_vMacStart();
@@ -655,10 +692,11 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 				sSerSeqTx.bWaitComplete = FALSE;
 
 				// VERBOSE MESSAGE
-				DBGOUT(3, "* >>> MacTxFin%s(tick=%d,req=#%d) <<<" LB,
+				DBGOUT(3, "* >>> MacTxFin%s(tick=%d,req=#%d,cb=%02X) <<<" LB,
 						(isum == sSerSeqTx.u8PktNum) ? "" : "Fail",
 						u32TickCount_ms & 65535,
-						sSerSeqTx.u8ReqNum
+						sSerSeqTx.u8ReqNum,
+						u8CbId
 						);
 
 				// 応答を返す
@@ -758,8 +796,9 @@ void cbToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 
 		// 重複チェックのタイムアウト処理
 		if ((sAppData.u32CtTimer0 & 0xF) == 0) {
-			DUPCHK_bFind(&sDupChk_IoData, 0, NULL);
+#ifndef USE_TOCONET_DUPCHK
 			DUPCHK_bFind(&sDupChk_SerMsg, 0, NULL);
+#endif
 		}
 
 		// 送信処理のタイムアウト処理
@@ -1058,11 +1097,14 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 	static uint8 au8SerialRxBuffer[UART_BUFFER_RX];
 
 	uint16 u16len_buff_tx;
+	uint16 u16len_buff_rx;
 	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
 		// 副出力する場合は１つのバッファを分割して利用する
 		u16len_buff_tx = UART_BUFFER_TX / 2;
+		u16len_buff_rx = UART_BUFFER_RX / 2;
 	} else {
 		u16len_buff_tx = UART_BUFFER_TX;
+		u16len_buff_rx = UART_BUFFER_RX;
 	}
 
 	// 主ポートの UART の初期化
@@ -1072,7 +1114,7 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 	pSerPort->u32BaudRate = u32Baud;
 	pSerPort->u16AHI_UART_RTS_LOW = 0xffff;
 	pSerPort->u16AHI_UART_RTS_HIGH = 0xffff;
-	pSerPort->u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
+	pSerPort->u16SerialRxQueueSize = u16len_buff_rx;
 	pSerPort->u16SerialTxQueueSize = u16len_buff_tx;
 	pSerPort->u8SerialPort = u8dev_uart_master;
 	pSerPort->u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
@@ -1083,16 +1125,13 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 		static tsSerialPortSetup sSerPort_Slave;
 		pSerPort = &sSerPort_Slave;
 
-		/* 入出力のバッファ(FIFOキュー) */
-		static uint8 au8SerialRxBuffer_Slave[128]; // RX バッファのみ最小サイズで設定
-
 		/* Initialise the serial port to be used for debug output */
-		pSerPort->pu8SerialRxQueueBuffer = au8SerialRxBuffer_Slave;
+		pSerPort->pu8SerialRxQueueBuffer = au8SerialRxBuffer + u16len_buff_rx;
 		pSerPort->pu8SerialTxQueueBuffer = au8SerialTxBuffer + u16len_buff_tx;
 		pSerPort->u32BaudRate = u32Baud;
 		pSerPort->u16AHI_UART_RTS_LOW = 0xffff;
 		pSerPort->u16AHI_UART_RTS_HIGH = 0xffff;
-		pSerPort->u16SerialRxQueueSize = sizeof(au8SerialRxBuffer_Slave);
+		pSerPort->u16SerialRxQueueSize = u16len_buff_rx;
 		pSerPort->u16SerialTxQueueSize = u16len_buff_tx;
 		pSerPort->u8SerialPort = u8dev_uart_salve;
 		pSerPort->u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
@@ -1129,7 +1168,7 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 		SerCmdTimeout_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff));
 		pf_vProcessInputByte = vProcessInputByte_Chat;
 		pf_vProcessInputByte_Slave = NULL;
-		u16SerTimeout = 100;
+		u16SerTimeout = sAppData.sFlash.sData.u8uart_txtrig_delay; // UART 未入力区間を基にした送信トリガー
 		break;
 	case UART_MODE_BINARY:
 		SerCmdBinary_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx));
@@ -1220,6 +1259,7 @@ static int16 i16GetSerialQueue(uint8 u8dev_uart) {
 	if (bCond) {
 		return SERIAL_i16RxChar(u8dev_uart);
 	} else {
+		DBGOUT(2, "<B>");
 		return (-1);
 	}
 }
@@ -1233,26 +1273,35 @@ void vHandleSerialInput() {
 	uint16 u16RxCt = SERIAL_u16RxQueueCount(u8dev_uart_master);
 
 #ifndef DEBUG_RTS
+	static bool_t bRST = FALSE, bRST_Prev = FALSE;
 	if (sAppData.bNwkUp == FALSE) {
 		// ネットワーク未接続時は HI(=受信禁止) にしておく
-		vPortSetHi(PORT_UART_RTS);
+		bRST = FALSE;
 	} else
 	if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
 		// CHAT_NO_PROMPT では送信中の入力禁止とする
 		if (sSerSeqTx.bWaitComplete) {
-			vPortSetHi(PORT_UART_RTS);
+			bRST = FALSE;
 		} else {
-			vPortSetLo(PORT_UART_RTS);
+			bRST = TRUE;
 		}
 	} else {
 		if (u16RxCt> UART_BUFFER_RX_LIMIT_STOP) {
 			// RX キューがリミット以上になったので RTS=HI (受信不可) を設定する
-			vPortSetHi(PORT_UART_RTS);
+			bRST = FALSE;
 		} else if (u16RxCt < UART_BUFFER_RX_LIMIT_START){
 			// RX キューがリミット以下になったので RTS=LO (受信可) を設定する
-			vPortSetLo(PORT_UART_RTS);
+			bRST = TRUE;
 		}
 	}
+
+	// 念のため毎回セットする
+	vPortSet_TrueAsLo(PORT_UART_RTS, bRST);
+	if (bRST_Prev != bRST) {
+		DBGOUT(2, "<%c>", bRST ? 'L' : 'H');
+	}
+	bRST_Prev = bRST;
+
 #else
 	static bool_t bStat = TRUE;
 
@@ -1370,7 +1419,7 @@ void vHandleSerialInput() {
 	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
 		// 副UARTの入力を処理する。インタラクティブモードだけ処理。
 		while (!SERIAL_bRxQueueEmpty(u8dev_uart_salve)) {
-			int16 i16Char = i16GetSerialQueue(u8dev_uart_master);;
+			int16 i16Char = i16GetSerialQueue(u8dev_uart_salve);
 
 			// 入力のチェック
 			if (i16Char >= 0 && i16Char <= 0xFF) {
@@ -1447,7 +1496,7 @@ static void vProcessInputByte_Transparent(tsSerCmd_Context *pSerCmd, uint16 u16B
 	} else {
 		pSerCmd->au8data[pSerCmd->u16len++] = u8Byte;
 
-		if (u8Byte == sAppData.sFlash.sData.u8uart_lnsep
+		if (u8Byte == sAppData.sFlash.sData.u16uart_lnsep
 				|| pSerCmd->u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
 			// 透過モードで 0x0D (CR) で送信するモード
 			// （通常は TICKTIMER のイベントハンドラで実行）
@@ -1494,10 +1543,10 @@ static void vProcessInputByte_FormatCmd(tsSerCmd_Context *pSerCmd, uint16 u16Byt
 
 		if (u8res == E_SERCMD_COMPLETE) {
 			// PAYLOAD が大きすぎる場合は新しくスタート
-			if (pSerCmd->u16len > SERCMD_MAXPAYLOAD) {
-				pSerCmd->u8state = E_SERCMD_EMPTY;
-				return;
-			}
+			//if (pSerCmd->u16len > SERCMD_MAXPAYLOAD) {
+			//	pSerCmd->u8state = E_SERCMD_EMPTY;
+			//	return;
+			//}
 
 			// process command
 			vProcessSerialCmd(pSerCmd);
@@ -1533,18 +1582,19 @@ static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
 
 	if (bData) {
 		u8res = pSerCmd->u8Parse(pSerCmd, (uint8)u8Byte);
+
+		// 区切り文字の判定
+		if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT
+				&& IS_APPCONF_OPT_TX_TRIGGER_CHAR()
+				&& u8Byte == sAppData.sFlash.sData.u16uart_lnsep
+				&& pSerCmd->u16len >= sAppData.sFlash.sData.u8uart_lnsep_minpkt // 最小パケットサイズ
+				&& pSerCmd->u8state != E_SERCMD_ERROR
+		) {
+			// TX TRIGGER の文字を入力したら、そこで送信する
+			u8res = pSerCmd->u8state = E_SERCMD_COMPLETE;
+		}
 	} else {
 		u8res = pSerCmd->u8state;
-	}
-
-	if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT
-			&& IS_APPCONF_OPT_TX_TRIGGER_CHAR()
-			&& u8Byte == sAppData.sFlash.sData.u8uart_lnsep
-			&& pSerCmd->u16len
-			&& pSerCmd->u8state != E_SERCMD_ERROR
-	) {
-		// TX TRIGGER の文字を入力したら、そこで送信する
-		u8res = pSerCmd->u8state = E_SERCMD_COMPLETE;
 	}
 
 	// 完了時の処理
@@ -1626,7 +1676,7 @@ static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
 		// 直前が入力処理中で、EMPTY に変化した
 		if (u8Prev != u8res && u8res == E_SERCMD_EMPTY && u8Prev < 0x80) {
 			bPrompt = TRUE;
-			vfPrintf(&sSerStream, "(canceled)");
+			vfPrintf(&sSerStream, "%c(canceled)", 0x08); // BS を追加しておく
 		}
 
 		// 状態が確定した
@@ -1682,6 +1732,12 @@ static void vProcessSerialCmd(tsSerCmd_Context *pSer) {
 					if (sAppData.bSilent) {
 						ToCoNet_Event_Process(E_ORDER_KICK, 0, vProcessEvCore);
 					}
+
+					vSerResp_Silent();
+				}
+
+				if (u8ctl == SERCMD_ID_MODULE_CONTROL_INFORM_SILENT) {
+					vSerResp_Silent();
 				}
 			}
 			break;
@@ -1745,7 +1801,7 @@ static void vProcessSerialCmd_TransmitEx(tsSerCmd_Context *pSer) {
 	uint8 *p_end = pSer->au8data + pSer->u16len;
 
 	tsTxDataApp sTx; // 送信オプションのテンプレート
-	memset(sTx.auData, 0, sizeof(tsTxDataApp));
+	memset(&sTx, 0, sizeof(tsTxDataApp));
 
 	sTx.u8Retry = 0xFF;
 	sTx.u16DelayMin = DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms;
@@ -1887,6 +1943,7 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 
 	// 処理中のチェック（処理中なら送信せず失敗）
 	if (sSerSeqTx.bWaitComplete) {
+		DBGOUT(2,"<S>");
 		return -1;
 	}
 
@@ -1937,7 +1994,8 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 
 	memset(sSerSeqTx.bPktStatus, 0, sizeof(sSerSeqTx.bPktStatus));
 
-	DBGOUT(3, "* >>> Transmit(req=%d) Tick=%d <<<" LB, sSerSeqTx.u8ReqNum , u32TickCount_ms & 65535);
+	DBGOUT(3, "* >>> Transmit(req=%d,cb=0x02X) Tick=%d <<<" LB,
+			sSerSeqTx.u8ReqNum, sTx.u8CbId ,u32TickCount_ms & 65535);
 
 	sTx.u8Cmd = TOCONET_PACKET_CMD_APP_DATA; // data packet.
 
@@ -2003,16 +2061,26 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 			sTx.u32DstAddr  = TOCONET_MAC_ADDR_BROADCAST; // ブロードキャスト
 		}
 
-		if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
+		if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT
+			|| sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT
+		) {
 			sTx.u16DelayMin = 0; // デフォルトの遅延
 			sTx.u16DelayMax = 0; // デフォルトの遅延
 			sTx.u16RetryDur = 0; // application retry
 
 			uint8 u8retry = (sAppData.sFlash.sData.u16power & 0xF0) >> 4;
-			switch (u8retry) {
-			case 0x0: u8retry = 0x2; break; // 強制２回ではない (0x0 よりは成功率が高い)
-			case 0xF: u8retry = 0x0; break;
-			default: u8retry |= 0x80;
+			if (sAppData.u8NumChannels > 1) {
+				switch (u8retry) {
+				case 0x0: u8retry = 0x80; break; // 複数チャネル利用時は 0x80 を与えないと１回送信はしない
+				case 0xF: u8retry = 0x80; break;
+				default: u8retry |= 0x80;
+				}
+			} else {
+				switch (u8retry) {
+				case 0x0: u8retry = 0x2; break; // 強制２回ではない (0x0 よりは成功率が高い)
+				case 0xF: u8retry = 0x0; break;
+				default: u8retry |= 0x80;
+				}
 			}
 			sTx.u8Retry = u8retry; // 再送回数の設定
 			sTx.bAckReq = FALSE; // ACK 無し！
@@ -2245,15 +2313,25 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 		// 新しいパケットを受信した
 
 		// 最初にリクエスト番号が適切かどうかチェックする。
+#ifdef USE_TOCONET_DUPCHK
+		// 重複しているかどうかのチェック
+		bool_t bDup = ToCoNet_DupChk_bAdd(psDupChk, u32AddrSrc, u8req & 0x7f);
+		DBGOUT(1, "<%02X,%c>", u8req, bDup ? 'D' : '-');
+		if (bDup) {
+			// 重複しいたら新しい人生は始めない
+			bNew = FALSE;
+		}
+#else
 		uint32 u32key;
 		if (DUPCHK_bFind(&sDupChk_SerMsg, u32AddrSrc, &u32key)) {
-			int iPrev = u32key & 0x7F, iNow = u8req & 0x7F;
+			int iPrev = u32key & 0x7F, iNow = u8req & 0x7F;// MSB がマスクされている場合もあるので修正
 
-			if (iNow == iPrev || (uint8)((iNow - iPrev) & 0x7F) > 0x80) { // MSB がマスクされている場合もあるので修正
+			if (iNow == iPrev || (uint8)(iNow - iPrev) > 0x80) {
 				// 最近受信したものより新しくないリクエスト番号の場合は、処理しない
 				bNew = FALSE;
 			}
 		}
+#endif
 
 		if (bNew) {
 			sSerSeqRx.bWaitComplete = TRUE;
@@ -2266,7 +2344,9 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 			sSerSeqRx.u8IdSender = u8AppLogicalId;
 			sSerSeqRx.u8IdReceiver = u8AppLogicalId_Dest;
 
+#ifndef USE_TOCONET_DUPCHK
 			DUPCHK_vAdd(&sDupChk_SerMsg, sSerSeqRx.u32SrcAddr, u8req);
+#endif
 		}
 	}
 
@@ -2319,7 +2399,7 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 				}
 
 				// リピータで、パケットがブロードキャスト、または、送信アドレス
-				if (bCondRepeat && sSerSeqRx.u8RelayPacket) {
+				if (bCondRepeat) {
 					// まだ中継されていないパケットなら、中継する
 					i16TransmitSerMsg(
 							au8SerBuffRx,

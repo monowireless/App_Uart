@@ -1,4 +1,4 @@
 #!/bin/sh
 
-make TWE_CHIP_MODEL=JN5148 clean all $*
-make TWE_CHIP_MODEL=JN5164 clean all $*
+make TWE_CHIP_MODEL=JN5148 APP_UART_CONFIG=CONFIG_NORMAL clean all $*
+make TWE_CHIP_MODEL=JN5164 APP_UART_CONFIG=CONFIG_NORMAL clean all $*

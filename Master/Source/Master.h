@@ -62,6 +62,7 @@ typedef struct {
 	uint32 u32ToCoNetVersion; //!< ToCoNet のバージョン番号を保持
 	uint16 u16ToCoNetTickDelta_ms; //!< ToCoNet の Tick 周期 [ms]
 	uint8 u8AppIdentifier; //!< AppID から自動決定
+	uint8 u8NumChannels; //!< 利用チャネル数
 
 	// DEBUG
 	uint8 u8DebugLevel; //!< デバッグ出力のレベル

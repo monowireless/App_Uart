@@ -26,28 +26,6 @@
 #include "config.h"
 #include "flash.h"
 
-/**
- * シリアルポートのバッファ数を取得する
- * @param u8port
- * @return
- */
-uint16 SERIAL_u16RxQueueCount(uint8 u8port);
-
-/**
- * シリアルポートのバッファ数を取得する
- * @param u8port
- * @return
- */
-uint16 SERIAL_u16TxQueueCount(uint8 u8port);
-
-/**
- * UART0,1 両方にバイトを出力する
- * @param u8SerialPort 値は反映されない
- * @param u8Chr 出力したいバイト
- * @return TRUEのみ
- */
-bool_t   SERIAL_bTxCharDuo(uint8 u8SerialPort, uint8 u8Chr);
-
 /*
  * IOポートの定義
  */
@@ -199,7 +177,9 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define SERCMD_ID_RESET 0xFF
 
 #define SERCMD_ID_MODULE_CONTROL 0xF8
+
 #define SERCMD_ID_MODULE_CONTROL_RELEASE_SILENT 0x10
+#define SERCMD_ID_MODULE_CONTROL_INFORM_SILENT 0x11
 
 /**
  * 拡張パケット送信
@@ -341,5 +321,38 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define ASC_CTRL_Z ASC_SUB
 #define ASC_ESC 0x1B
 #define XMODEM_BLOCK_SIZE 128
+
+
+/**
+ * シリアルポートのバッファ数を取得する
+ * @param u8port
+ * @return
+ */
+uint16 SERIAL_u16RxQueueCount(uint8 u8port);
+
+/**
+ * シリアルポートのバッファ数を取得する
+ * @param u8port
+ * @return
+ */
+uint16 SERIAL_u16TxQueueCount(uint8 u8port);
+
+/**
+ * UART0,1 両方にバイトを出力する
+ * @param u8SerialPort 値は反映されない
+ * @param u8Chr 出力したいバイト
+ * @return TRUEのみ
+ */
+bool_t   SERIAL_bTxCharDuo(uint8 u8SerialPort, uint8 u8Chr);
+
+/**
+ * 文字列を区切り文字で分割する。pstr は NUL 文字で分割される。
+ *
+ * @param pstr 分割したい文字列
+ * @param auptr 区切り文字のポインタ
+ * @param u8max_entry 最大の区切り数
+ * @return 分割数
+ */
+uint8 u8StrSplitTokens(uint8 *pstr, uint8 *auptr[], uint8 u8max_entry);
 
 #endif /* COMMON_H_ */

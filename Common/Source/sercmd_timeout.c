@@ -134,6 +134,11 @@ static void SerCmdTimeout_Output(tsSerCmd_Context *pc, tsFILE *ps) {
 static bool_t SerCmdTimeout_bComplete(tsSerCmd_Context *pc) {
 	bool_t bRet = FALSE;
 
+	// タイムアウトは常に無効
+	if (pc->u16timeout == 0) {
+		return FALSE;
+	}
+
 	if (pc->u8state == E_SERCMD_TIMEOUT_CMD_READPAYLOAD) {
 		if (u32TickCount_ms - pc->u32timestamp > pc->u16timeout) {
 			// 100ms 経過したら確定

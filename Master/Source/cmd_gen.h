@@ -17,5 +17,6 @@ void vSerResp_Ack(uint8 u8Status);
 void vSerResp_TxEx(uint8 u8RspId, uint8 u8Status);
 
 void vSerResp_GetModuleAddress();
+void vSerResp_Silent();
 
 #endif /* CMD_GEN_H_ */
