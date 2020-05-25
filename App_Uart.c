@@ -8,15 +8,13 @@
 #include <string.h>
 #include <AppHardwareApi.h>
 
-#include "Master.h"
+#include "App_Uart.h"
 
 #include "config.h"
 
 #include <ccitt8.h>
 #include <Interrupt.h>
 #include <ByteQueue.h>
-
-#include "Version.h"
 
 #include <utils.h>
 #include "input_string.h"

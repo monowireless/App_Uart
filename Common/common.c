@@ -12,7 +12,6 @@
 #include "utils.h"
 
 #include "common.h"
-#include "Version.h"
 
 /**
  * DI のポート番号のテーブル

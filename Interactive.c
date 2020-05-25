@@ -11,11 +11,9 @@
 
 #include <string.h>
 
-#include "Master.h"
+#include "App_Uart.h"
 
 #include "config.h"
-
-#include "Version.h"
 
 #include "utils.h"
 #include "input_string.h"

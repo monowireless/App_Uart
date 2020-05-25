@@ -26,7 +26,7 @@
 #define DUPLICATE_CHECKER_H_
 
 #include <jendefs.h>
-extern uint32 u32TickCount_ms; //!< TOCONETのタイムスタンプ @ingroup DUPCHK
+extern volatile uint32 u32TickCount_ms; //!< TOCONETのタイムスタンプ @ingroup DUPCHK
 
 /** @ingroup DUPCHK
  * ノードリストをクリアする数
