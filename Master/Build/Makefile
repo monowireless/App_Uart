@@ -56,6 +56,7 @@ APPSRC += sercmd_plus3.c
 APPSRC += sercmd_ascii.c
 APPSRC += sercmd_binary.c
 APPSRC += sercmd_chat.c
+APPSRC += sercmd_timeout.c
 APPSRC += input_string.c
 APPSRC += duplicate_checker.c
 
@@ -85,6 +86,10 @@ include ../../../../MkFiles/toconet.mk
 #
 CFLAGS += -DDEBUG_OUTPUT
 
+ifneq ($(APP_UART_CONFIG),)
+  CFLAGS += -D$(APP_UART_CONFIG)
+endif
+
 ### Build Options
 # プラットフォーム別のビルドをしたり、デバッグ用のビルドのファイル名を変更
 # したいような場合の設定。
@@ -98,6 +103,12 @@ CFLAGS += -DDEBUG_OUTPUT
 #  OBJDIR_SUFF += _Debug
 #  TARGET_SUFF += _Debug
 #endif 
+
+ifneq ($(APP_UART_CONFIG),)
+ifneq ($(APP_UART_CONFIG),CONFIG_NORMAL)
+  TARGET_SUFF += _X$(APP_UART_CONFIG)X
+endif
+endif
 
 ### Additional Src/Include Path
 # 下記に指定したディレクトリがソース検索パス、インクルード検索パスに設定

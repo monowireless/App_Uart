@@ -36,7 +36,7 @@
 
 extern tsSerCmd_Context sSerCmdTemp;
 extern tsFILE sSerStream;
-
+extern tsAppData sAppData;
 
 /** @ingroup MASTER
  * 送信完了応答を返す
@@ -65,9 +65,11 @@ void vSerResp_GetModuleAddress() {
 			| (((uint32)VERSION_VAR & 0xFF) << 0);
 
 	S_OCTET(0xDB);
+	S_BE_DWORD(APP_ID);
+	S_BE_DWORD(u32ver);
 	S_OCTET(SERCMD_ID_GET_MODULE_ADDRESS);
 	S_BE_DWORD(ToCoNet_u32GetSerial());
-	S_BE_DWORD(u32ver);
+	S_OCTET(sAppData.bSilent);
 
 	sSerCmdTemp.u16len = q - sSerCmdTemp.au8data;
 	sSerCmdTemp.vOutput(&sSerCmdTemp, &sSerStream);

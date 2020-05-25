@@ -81,9 +81,12 @@
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
 /****************************************************************************/
-// DEBUG
+// DEBUG RTS
 #undef DEBUG_RTS
+#ifdef DEBUG_RTS
+#warning "DEBUG_RTS"
 #define DEBUG_RTS_LED 15
+#endif
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -99,8 +102,9 @@ static void vInitHardware(int f_warm_start);
 static void vSerialInit(uint32, tsUartOpt *);
 static void vProcessSerialCmd(tsSerCmd_Context *pSer);
 static void vProcessSerialCmd_TransmitEx(tsSerCmd_Context *pSer);
-static void vProcessInputByte_Transparent(uint8 u8Byte);
-static void vProcessInputByte_FormatCmd(uint8 u8Byte);
+static void vProcessInputByte_Transparent(tsSerCmd_Context *pSerCmd, uint16 u16Byte);
+static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte);
+static void vProcessInputByte_FormatCmd(tsSerCmd_Context *pSerCmd, uint16 u16Byte);
 static void vHandleSerialInput();
 static void vSerChatPrompt();
 
@@ -109,7 +113,7 @@ static void vReceiveSerMsg(tsRxDataApp *pRx);
 
 static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate,
 		uint32 u32AddrSrc, uint8 u8AddrSrc, uint32 u32AddrDst, uint8 u8AddrDst,
-		bool_t bRelay, uint8 u8Req, uint8 u8RspId);
+		uint8 u8Relay, uint8 u8Req, uint8 u8RspId, uint8 u8Opt);
 static int16 i16Transmit_Transparent();
 
 static void vSleep0(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep);
@@ -124,11 +128,18 @@ static void vSleep();
 /****************************************************************************/
 tsAppData sAppData; //!< アプリケーションデータ  @ingroup MASTER
 
+uint8 u8dev_uart_master; // UART主ポート(UART0)
+uint8 u8dev_uart_salve; // UART副ポート(UART1)
+
 tsFILE sSerStream; //!< シリアル出力ストリーム  @ingroup MASTER
-tsSerialPortSetup sSerPort; //!< シリアルポートの設定  @ingroup MASTER
 
 tsSerCmdPlus3_Context sSerCmd_P3; //!< シリアル入力系列のパーサー (+ + +)  @ingroup MASTER
 tsSerCmd_Context sSerCmd; //!< シリアル入力系列のパーサー   @ingroup MASTER
+tsSerCmd_Context sSerCmd_Slave; //!< シリアル入力系列のパーサー   @ingroup MASTER
+uint16 u16SerTimeout; //!< 入力タイムアウト
+
+static void (*pf_vProcessInputByte)(tsSerCmd_Context *, uint16);
+static void (*pf_vProcessInputByte_Slave)(tsSerCmd_Context *, uint16);
 
 tsSerSeq sSerSeqTx; //!< 分割パケット管理構造体（送信用）  @ingroup MASTER
 uint8 au8SerBuffTx[SERCMD_MAXPAYLOAD+32]; //!< sSerSeqTx 用に確保  @ingroup MASTER
@@ -162,7 +173,7 @@ static bool_t bPendingTxOnTransparent = 0; //!< 透過モードで送信待ち (
 const uint8 au8UartModeToTxCmdId[] = {
 	0,    // TRANSPARENT
 	1, 1, // ASCII, BINARY
-	2, 2  // チャットモード
+	2, 3  // チャットモード
 };
 
 /****************************************************************************/
@@ -174,7 +185,7 @@ const uint8 au8UartModeToTxCmdId[] = {
  */
 static void vSerInitMessage() {
 	// 始動メッセージ
-	if (sAppData.u8uart_mode == UART_MODE_CHAT || sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
+	if (sAppData.u8uart_mode == UART_MODE_CHAT) {
 		vfPrintf(&sSerStream, LB"!INF TWE UART APP V%d-%02d-%d, SID=0x%08X, LID=0x%02x",
 				VERSION_MAIN, VERSION_SUB, VERSION_VAR, ToCoNet_u32GetSerial(), sAppData.u8AppLogicalId);
 		vSerChatPrompt();
@@ -199,6 +210,9 @@ static void vSerChatPrompt() {
 		// 入力中なら表示を回復する
 		if (sSerCmd.u8state < 0x80 && sSerCmd.u8state != E_SERCMD_EMPTY) {
 			sSerCmd.vOutput(&sSerCmd, &sSerStream);
+		} else
+		if (sSerCmd_Slave.u8state < 0x80 && sSerCmd_Slave.u8state != E_SERCMD_EMPTY) {
+			sSerCmd_Slave.vOutput(&sSerCmd_Slave, &sSerStream);
 		}
 	}
 }
@@ -216,6 +230,10 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 	switch (pEv->eState) {
 	case E_STATE_IDLE:
 		if (eEvent == E_EVENT_START_UP) {
+			// ネットワーク稼働状態を FALSE にする
+			sAppData.bNwkUp = FALSE;
+			sAppData.bSilent = FALSE;
+
 			// 暗号化キーを登録する
 #ifdef USE_AES
 			if (IS_CRYPT_MODE()) {
@@ -223,21 +241,50 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 			}
 #endif
 
-			if (IS_APPCONF_ROLE_SILENT_MODE()) {
-				vfPrintf(&sSerStream, LB"!Note: launch silent mode."LB);
+			if (IS_APPCONF_ROLE_SILENT_MODE() && (sAppData.u8uart_mode == UART_MODE_ASCII || sAppData.u8uart_mode == UART_MODE_BINARY)) {
+				// ASCII, BINARY モード時は SILENT 設定を有効にする
+				sAppData.bSilent = TRUE;
+			} else {
 				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
-			} else if (sAppData.eNwkMode == E_NWKMODE_LAYERTREE) {
-				// layer tree の実装
+			}
+
+			// 始動メッセージの表示
+			if (!(u32evarg & EVARG_START_UP_WAKEUP_MASK)) {
+				vSerInitMessage();
+			}
+		} else if (eEvent == E_ORDER_KICK) {
+			sAppData.bSilent = FALSE;
+			ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
+		}
+
+		break;
+
+	case E_STATE_RUNNING:
+		if (eEvent == E_EVENT_NEW_STATE) {
+			if (sAppData.eNwkMode == E_NWKMODE_LAYERTREE) {
 #ifdef NWK_LAYER
-				switch(sAppData.sFlash.sData.u8role) {
+				// layer tree の実装
+				switch(APPCONF_ROLE()) {
 				case E_APPCONF_ROLE_PARENT:
 					sAppData.sNwkLayerTreeConfig.u8Role = TOCONET_NWK_ROLE_PARENT;
 					break;
 				case E_APPCONF_ROLE_ROUTER:
 					sAppData.sNwkLayerTreeConfig.u8Role = TOCONET_NWK_ROLE_ROUTER;
 					sAppData.sNwkLayerTreeConfig.u8Layer = sAppData.sFlash.sData.u8layer;
+
+					sAppData.sNwkLayerTreeConfig.u8Second_To_Rescan = 15;
+					sAppData.sNwkLayerTreeConfig.u8Second_To_Relocate = 5;
+					sAppData.sNwkLayerTreeConfig.u8Ct_To_Relocate = 5;
+
+					if (IS_APPCONF_OPT_LAYER_NWK_CONNET_ONE_LEVEL_HIGHER_ONLY()) {
+						// 上１レベルに限定して接続する
+						sAppData.sNwkLayerTreeConfig.u8LayerOptions = 0x00000001;
+					}
 					break;
 				case E_APPCONF_ROLE_ENDDEVICE:
+					sAppData.sNwkLayerTreeConfig.u8Second_To_Relocate = 0xFF;
+					sAppData.sNwkLayerTreeConfig.u8Second_To_Rescan = 60;
+					sAppData.sNwkLayerTreeConfig.u8Ct_To_Relocate = 10;
 					sAppData.sNwkLayerTreeConfig.u8Role = TOCONET_NWK_ROLE_ENDDEVICE;
 					break;
 				default: break;
@@ -250,39 +297,38 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 					// 本アプリは中継機無しを想定しているので、値を小さくし応答性を重視する。
 
 				// 設定を行う
-				sAppData.pContextNwk = ToCoNet_NwkLyTr_psConfig(&sAppData.sNwkLayerTreeConfig);
+				if (!sAppData.pContextNwk) {
+					sAppData.pContextNwk = ToCoNet_NwkLyTr_psConfig(&sAppData.sNwkLayerTreeConfig);
 
-				if (sAppData.pContextNwk) {
 					// ネットワークの開始
 					ToCoNet_Nwk_bInit(sAppData.pContextNwk);
 					ToCoNet_Nwk_bStart(sAppData.pContextNwk);
-
-					sAppData.eNwkMode = E_NWKMODE_LAYERTREE;
-					ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
-
-				}
-
-				if (!(u32evarg & EVARG_START_UP_WAKEUP_MASK)) {
-					vSerInitMessage(); // SKIP!
+				} else {
+					ToCoNet_Nwk_bResume(sAppData.pContextNwk);
 				}
 #endif
 			} else if (sAppData.eNwkMode == E_NWKMODE_MAC_DIRECT) {
-				// LayerNetwork で無ければ、特別な動作は不要。
-				// run as default...
-				if (!(u32evarg & EVARG_START_UP_WAKEUP_MASK)) {
-					vSerInitMessage(); // SKIP!
-				}
+				// MAC start
+				sToCoNet_AppContext.bRxOnIdle = TRUE;
+				ToCoNet_vMacStart();
 
-				ToCoNet_Event_SetState(pEv, E_STATE_RUNNING);
+				sAppData.bNwkUp = TRUE; // ネットワーク稼働状態
 			}
-		}
-		break;
-
-	case E_STATE_RUNNING:
+		} else
 		if (eEvent == E_EVENT_TICK_SECOND) {
 			//DBGOUT(0, "*"); // １秒置きに * を表示する (デバッグ用)
+		} else
+		if (eEvent == E_EVENT_TOCONET_ON_SLEEP) {
+#ifdef NWK_LAYER
+			if (sAppData.pContextNwk) {
+				// ネットワークをポーズする
+				ToCoNet_Nwk_bPause(sAppData.pContextNwk);
+			}
+#endif
+			sAppData.bNwkUp = FALSE;
 		}
 		break;
+
 	default:
 		break;
 	}
@@ -315,7 +361,7 @@ void cbAppColdStart(bool_t bStart) {
 
 		// configure network
 		sToCoNet_AppContext.u8TxMacRetry = 3; // MAC再送回数（JN516x では変更できない）
-		//sToCoNet_AppContext.bRxOnIdle = TRUE; // TRUE:受信回路をオープンする
+		sToCoNet_AppContext.bRxOnIdle = FALSE; // TRUE:受信回路は起動時には FALSE とする
 		sToCoNet_AppContext.u32AppId = APP_ID; // アプリケーションID
 		sToCoNet_AppContext.u32ChMask = CHMASK; // 利用するチャネル群（最大３つまで）
 		sToCoNet_AppContext.u8Channel = CHANNEL;
@@ -326,6 +372,9 @@ void cbAppColdStart(bool_t bStart) {
 
 		// configuration
 		vConfig_UnSetAll(&sAppData.sConfig_UnSaved);
+
+		// デフォルト値を格納する
+		vConfig_SetDefaults(&(sAppData.sFlash.sData));
 
 		// load flash value
 		sAppData.bFlashLoaded = bFlash_Read(&sAppData.sFlash, FLASH_SECTOR_NUMBER - 1, 0);
@@ -345,22 +394,17 @@ void cbAppColdStart(bool_t bStart) {
 #ifdef JN514x
 			sToCoNet_AppContext.u8HigherDataRate = (sAppData.sFlash.sData.u16power & 0xF000) >> 12; // 高速モード
 #endif
-
-			if (   sAppData.sFlash.sData.u8role == E_APPCONF_ROLE_MAC_NODE
-				|| sAppData.sFlash.sData.u8role == E_APPCONF_ROLE_MAC_NODE_REPEATER) {
-				sAppData.eNwkMode = E_NWKMODE_MAC_DIRECT;
-			} else
-			if (sAppData.sFlash.sData.u8role & E_APPCONF_ROLE_NWK_MASK) {
-				sAppData.eNwkMode = E_NWKMODE_LAYERTREE;
-			} else
-			if (sAppData.sFlash.sData.u8role == E_APPCONF_ROLE_SILENT) {
-				sAppData.eNwkMode = E_NWKMODE_MAC_DIRECT;
-			} else {
-				sAppData.bFlashLoaded = FALSE;
-			}
 		} else {
-			// デフォルト値を格納する
+			// 念のためデフォルト値を再格納する
 			vConfig_SetDefaults(&(sAppData.sFlash.sData));
+		}
+
+		// ROLE から eNwkMode を設定
+		if (APPCONF_ROLE() <= E_APPCONF_ROLE_MAC_NODE_MAX) {
+			sAppData.eNwkMode = E_NWKMODE_MAC_DIRECT;
+		} else
+		if (APPCONF_ROLE() & E_APPCONF_ROLE_NWK_MASK) {
+			sAppData.eNwkMode = E_NWKMODE_LAYERTREE;
 		}
 
 		// ヘッダの１バイト識別子を AppID から計算
@@ -401,18 +445,6 @@ void cbAppColdStart(bool_t bStart) {
 		sAppData.eNwkMode = E_NWKMODE_LAYERTREE;
 #endif
 
-		// IOピンの状態によって独自設定を行う
-		if (sAppData.u8ModeEx & 0x01) { // バイナリモード強制
-#if 1
-			sAppData.u8uart_mode = UART_MODE_BINARY;
-#else
-# warning "FOR DEBUG!"
-			sAppData.u8uart_mode = UART_MODE_ASCII;
-#endif
-		} else {
-			sAppData.u8uart_mode = sAppData.sFlash.sData.u8uart_mode;
-		}
-
 		// モードごとの独自設定
 		sAppData.u8AppLogicalId = 0; // 最初に０にしておく
 		switch(sAppData.u8Mode) {
@@ -448,8 +480,12 @@ void cbAppColdStart(bool_t bStart) {
 			// 中継子機の設定(ピンを優先する)
 			if (sAppData.u8Mode == E_IO_MODE_REPEAT_CHILD) {
 				if (!(sAppData.sFlash.sData.u8role & E_APPCONF_ROLE_NWK_MASK)) {
-					sAppData.sFlash.sData.u8role = E_APPCONF_ROLE_MAC_NODE_REPEATER;
+					// NWK なし (MAC アプリ)
+					if (!IS_REPEATER()) {
+						sAppData.sFlash.sData.u8role = E_APPCONF_ROLE_MAC_NODE_REPEATER; // 1リピートに設定
+					}
 				} else {
+					// NWK あり (ROUTER)
 					sAppData.sFlash.sData.u8role = E_APPCONF_ROLE_ROUTER;
 				}
 			}
@@ -461,7 +497,7 @@ void cbAppColdStart(bool_t bStart) {
 
 		default: // 未定義機能なので、SILENT モードにする。
 			sAppData.u8AppLogicalId = 255;
-			sAppData.sFlash.sData.u8role = E_APPCONF_ROLE_SILENT;
+			sAppData.sFlash.sData.u8role = E_APPCONF_ROLE_SILENT_MASK;
 			break;
 		}
 
@@ -476,26 +512,8 @@ void cbAppColdStart(bool_t bStart) {
 		DUPCHK_vInit(&sDupChk_IoData);
 		DUPCHK_vInit(&sDupChk_SerMsg);
 
-		if (!(IS_APPCONF_ROLE_SILENT_MODE())) {
-			// メインアプリケーション処理部
-			switch(sAppData.u8Mode) {
-			case E_IO_MODE_PARNET:
-			case E_IO_MODE_REPEATER:
-			case E_IO_MODE_CHILD:
-				sToCoNet_AppContext.bRxOnIdle = TRUE;
-				break;
-
-			default: // 未定義機能なので、SILENT モードにする。
-				sToCoNet_AppContext.bRxOnIdle = FALSE;
-				break;
-			}
-
-			// MAC start
-			ToCoNet_vMacStart();
-
-			// event machine
-			ToCoNet_Event_Register_State_Machine(vProcessEvCore); // main state machine
-		}
+		// イベント処理関数を稼働させる
+		ToCoNet_Event_Register_State_Machine(vProcessEvCore); // main state machine
 	}
 }
 
@@ -563,7 +581,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *psRx) {
 	//uint8 *p = pRx->auData;
 	DBGOUT(5, "Rx packet (cm:%02x, fr:%08x, to:%08x)"LB, psRx->u8Cmd, psRx->u32SrcAddr, psRx->u32DstAddr);
 
-	if (IS_APPCONF_ROLE_SILENT_MODE()) {
+	if (sAppData.bSilent) {
 		// SILENT, 1秒スリープ, 10秒スリープでは受信処理はしない。
 		return;
 	}
@@ -600,7 +618,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *psRx) {
  */
 void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	//uint8 *q = au8SerOutBuff;
-	if (IS_APPCONF_ROLE_SILENT_MODE()) {
+	if (sAppData.bSilent) {
 		return;
 	}
 
@@ -645,7 +663,9 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 
 				// 応答を返す
 				if ((sAppData.u8uart_mode == UART_MODE_ASCII || sAppData.u8uart_mode == UART_MODE_BINARY) && !(u8CbId & CBID_MASK_SILENT)) {
-					vSerResp_TxEx(sSerSeqTx.u8RespID, isum == sSerSeqTx.u8PktNum);
+					if (!IS_APPCONF_OPT_NO_TX_RESULT()) {
+						vSerResp_TxEx(sSerSeqTx.u8RespID, isum == sSerSeqTx.u8PktNum);
+					}
 				}
 
 				// スリープする場合
@@ -660,7 +680,9 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	if (!bHandleMsg && (sAppData.u8uart_mode == UART_MODE_ASCII || sAppData.u8uart_mode == UART_MODE_BINARY)) {
 		// 応答を返す
 		if (!(u8CbId & CBID_MASK_SPLIT_PKTS) && !(u8CbId & CBID_MASK_SILENT)) { // 分割パケットおよびリピートパケットは処理しない
-			vSerResp_TxEx(au8TxCbId_to_RespID[u8CbId], bStatus);
+			if (!IS_APPCONF_OPT_NO_TX_RESULT()) {
+				vSerResp_TxEx(au8TxCbId_to_RespID[u8CbId], bStatus);
+			}
 		}
 	}
 
@@ -675,16 +697,18 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
  * @param u32evarg
  */
 void cbToCoNet_vNwkEvent(teEvent ev, uint32 u32evarg) {
-	if (IS_APPCONF_ROLE_SILENT_MODE()) {
+	if (sAppData.bSilent) {
 		return;
 	}
 
 	switch(ev) {
 	case E_EVENT_TOCONET_NWK_START:
+		sAppData.bNwkUp = TRUE;
 		DBGOUT(1, LB"!Note: nwk started"LB);
 		break;
 
 	case E_EVENT_TOCONET_NWK_DISCONNECT:
+		sAppData.bNwkUp = FALSE;
 		DBGOUT(1, LB"!Note: nwk disconnected"LB);
 		break;
 
@@ -721,7 +745,7 @@ void cbToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 			&&	!sSerSeqTx.bWaitComplete // 送信中でない事
 		) {
 			// 送信要求を MAC 層に伝える
-			if (!IS_APPCONF_OPT_TX_BY_CR_ON_TRANSPARENT() || bPendingTxOnTransparent) {
+			if (!IS_APPCONF_OPT_TX_TRIGGER_CHAR() || bPendingTxOnTransparent) {
 				i16Transmit_Transparent();
 			}
 		}
@@ -898,6 +922,18 @@ PRIVATE void vInitHardware(int f_warm_start) {
 	sAppData.u8ModeEx |= bPortRead(PORT_CONF_EX2) ? 2 : 0;
 #endif
 
+	// IOピンの状態によって独自設定を行う
+	if (sAppData.u8ModeEx & 0x01) { // バイナリモード強制
+#if 1
+		sAppData.u8uart_mode = UART_MODE_BINARY;
+#else
+# warning "FOR DEBUG!"
+		sAppData.u8uart_mode = UART_MODE_ASCII;
+#endif
+	} else {
+		sAppData.u8uart_mode = sAppData.sFlash.sData.u8uart_mode;
+	}
+
 	// スリープピン
 	vPortAsInput(PORT_CONF3);
 	if (IS_APPCONF_OPT_DISABLE_PULL_UP_SLEEP_PIN()) {
@@ -1005,27 +1041,71 @@ PRIVATE void vInitHardware(int f_warm_start) {
  * @param u32Baud ボーレート
  */
 void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
+	static tsSerialPortSetup sSerPort;
+	tsSerialPortSetup *pSerPort;
+
+	if (IS_APPCONF_OPT_UART_SWAP_PORT()) {
+		// 主ポートと副ポートを入れ替える
+		u8dev_uart_master = UART_PORT_SLAVE;
+		u8dev_uart_salve = UART_PORT_MASTER;
+	} else {
+		u8dev_uart_master = UART_PORT_MASTER;
+		u8dev_uart_salve = UART_PORT_SLAVE;
+	}
+
 	/* 入出力のバッファ(FIFOキュー) */
 	static uint8 au8SerialTxBuffer[UART_BUFFER_TX];
 	static uint8 au8SerialRxBuffer[UART_BUFFER_RX];
 
-	/* Initialise the serial port to be used for debug output */
-	sSerPort.pu8SerialRxQueueBuffer = au8SerialRxBuffer;
-	sSerPort.pu8SerialTxQueueBuffer = au8SerialTxBuffer;
-	sSerPort.u32BaudRate = u32Baud;
-	sSerPort.u16AHI_UART_RTS_LOW = 0xffff;
-	sSerPort.u16AHI_UART_RTS_HIGH = 0xffff;
-	sSerPort.u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
-	sSerPort.u16SerialTxQueueSize = sizeof(au8SerialTxBuffer);
-	sSerPort.u8SerialPort = UART_PORT_MASTER;
-	sSerPort.u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
-	SERIAL_vInitEx(&sSerPort, pUartOpt);
+	uint16 u16len_buff_tx;
+	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
+		// 副出力する場合は１つのバッファを分割して利用する
+		u16len_buff_tx = UART_BUFFER_TX / 2;
+	} else {
+		u16len_buff_tx = UART_BUFFER_TX;
+	}
 
-	/* prepare stream for vfPrintf */
-	sSerStream.bPutChar = SERIAL_bTxChar;
-	sSerStream.u8Device = UART_PORT_MASTER;
+	// 主ポートの UART の初期化
+	pSerPort = &sSerPort;
+	pSerPort->pu8SerialRxQueueBuffer = au8SerialRxBuffer;
+	pSerPort->pu8SerialTxQueueBuffer = au8SerialTxBuffer;
+	pSerPort->u32BaudRate = u32Baud;
+	pSerPort->u16AHI_UART_RTS_LOW = 0xffff;
+	pSerPort->u16AHI_UART_RTS_HIGH = 0xffff;
+	pSerPort->u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
+	pSerPort->u16SerialTxQueueSize = u16len_buff_tx;
+	pSerPort->u8SerialPort = u8dev_uart_master;
+	pSerPort->u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
+	SERIAL_vInitEx(pSerPort, pUartOpt);
 
-	/* other initialization */
+	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
+		// 副ポートへの出力する場合、UART を初期化する
+		static tsSerialPortSetup sSerPort_Slave;
+		pSerPort = &sSerPort_Slave;
+
+		/* 入出力のバッファ(FIFOキュー) */
+		static uint8 au8SerialRxBuffer_Slave[128]; // RX バッファのみ最小サイズで設定
+
+		/* Initialise the serial port to be used for debug output */
+		pSerPort->pu8SerialRxQueueBuffer = au8SerialRxBuffer_Slave;
+		pSerPort->pu8SerialTxQueueBuffer = au8SerialTxBuffer + u16len_buff_tx;
+		pSerPort->u32BaudRate = u32Baud;
+		pSerPort->u16AHI_UART_RTS_LOW = 0xffff;
+		pSerPort->u16AHI_UART_RTS_HIGH = 0xffff;
+		pSerPort->u16SerialRxQueueSize = sizeof(au8SerialRxBuffer_Slave);
+		pSerPort->u16SerialTxQueueSize = u16len_buff_tx;
+		pSerPort->u8SerialPort = u8dev_uart_salve;
+		pSerPort->u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
+		SERIAL_vInitEx(pSerPort, pUartOpt);
+
+		sSerStream.bPutChar = SERIAL_bTxCharDuo; // 主ポートと副ポート両方に出力する
+	} else {
+		sSerStream.bPutChar = SERIAL_bTxChar;
+	}
+
+	sSerStream.u8Device = u8dev_uart_master;
+
+	// メモリの初期化
 	INPSTR_vInit(&sSerInpStr, &sSerStream);
 	memset(&sSerCmd_P3, 0x00, sizeof(sSerCmd));
 	memset(&sSerSeqTx, 0x00, sizeof(sSerSeqTx));
@@ -1035,42 +1115,143 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 
 	// シリアルコマンド解釈部分の初期化
 	switch(sAppData.u8uart_mode) {
-	case UART_MODE_CHAT: case UART_MODE_CHAT_NO_PROMPT:
+	case UART_MODE_CHAT:
 		SerCmdChat_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx));
 		SerCmdChat_vInit(&sSerCmdOut, au8SerBuffRx, SIZEOF_au8SerBuffRx);
 		SerCmdChat_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff));
+		pf_vProcessInputByte = vProcessInputByte_Chat;
+		pf_vProcessInputByte_Slave = NULL;
+		u16SerTimeout = 0;
+		break;
+	case UART_MODE_CHAT_NO_PROMPT:
+		SerCmdTimeout_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx));
+		SerCmdTimeout_vInit(&sSerCmdOut, au8SerBuffRx, SIZEOF_au8SerBuffRx);
+		SerCmdTimeout_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff));
+		pf_vProcessInputByte = vProcessInputByte_Chat;
+		pf_vProcessInputByte_Slave = NULL;
+		u16SerTimeout = 100;
 		break;
 	case UART_MODE_BINARY:
 		SerCmdBinary_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx));
 		SerCmdBinary_vInit(&sSerCmdOut, au8SerBuffRx, SIZEOF_au8SerBuffRx);
 		SerCmdBinary_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff));
+		pf_vProcessInputByte = vProcessInputByte_FormatCmd;
+		u16SerTimeout = 1000;
 		break;
-	case UART_MODE_ASCII: case UART_MODE_TRANSPARENT:
+	case UART_MODE_ASCII:
 		SerCmdAscii_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx));
 		SerCmdAscii_vInit(&sSerCmdOut, au8SerBuffRx, SIZEOF_au8SerBuffRx);
 		SerCmdAscii_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff));
+		pf_vProcessInputByte = vProcessInputByte_FormatCmd;
+		pf_vProcessInputByte_Slave = vProcessInputByte_FormatCmd;
+		u16SerTimeout = 1000;
+		break;
+	case UART_MODE_TRANSPARENT:
+		SerCmdAscii_vInit(&sSerCmd, au8SerBuffTx, sizeof(au8SerBuffTx)); // 使用しないはずだが
+		SerCmdAscii_vInit(&sSerCmdOut, au8SerBuffRx, SIZEOF_au8SerBuffRx); // 使用しないはずだが
+		SerCmdAscii_vInit(&sSerCmdTemp, au8SerOutBuff, sizeof(au8SerOutBuff)); // 使用しないはずだが
+		pf_vProcessInputByte = vProcessInputByte_Transparent;
+		pf_vProcessInputByte_Slave = NULL;
+		u16SerTimeout = 1000; // 使用しないはずだが
 		break;
 	}
-	sSerCmd.u16timeout = 1000; // デフォルトのタイムアウト
+
+	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
+		static uint8 au8cmdbuf[SERCMD_MAXPAYLOAD+32];
+
+		switch(sAppData.u8uart_mode) {
+		case UART_MODE_CHAT:
+			SerCmdChat_vInit(&sSerCmd_Slave, au8cmdbuf, sizeof(au8cmdbuf));
+			pf_vProcessInputByte_Slave = vProcessInputByte_Chat;
+			break;
+		case UART_MODE_CHAT_NO_PROMPT:
+			SerCmdTimeout_vInit(&sSerCmd_Slave, au8cmdbuf, sizeof(au8cmdbuf));
+			pf_vProcessInputByte_Slave = vProcessInputByte_Chat;
+			break;
+		case UART_MODE_BINARY:
+			SerCmdBinary_vInit(&sSerCmd_Slave, au8cmdbuf, sizeof(au8cmdbuf));
+			pf_vProcessInputByte_Slave = vProcessInputByte_FormatCmd;
+			break;
+		case UART_MODE_ASCII:
+			SerCmdAscii_vInit(&sSerCmd_Slave, au8cmdbuf, sizeof(au8cmdbuf));
+			pf_vProcessInputByte_Slave = vProcessInputByte_FormatCmd;
+			break;
+		case UART_MODE_TRANSPARENT:
+			pf_vProcessInputByte_Slave = NULL;
+			break;
+		}
+
+		sSerCmd_Slave.u16timeout = u16SerTimeout;
+	}
+
+	sSerCmd.u16timeout = u16SerTimeout; // デフォルトのタイムアウト
 }
 
+/**
+ * シリアルポートからの１バイト引っ張るべきか、ブロックして待っておくかを判定する。
+ * （送信中には次のキューの処理が出来ないため）
+ *
+ * @param u8dev_uart
+ * @return キューから取り出した場合は文字列 取り出さない場合は(-1)
+ */
+static int16 i16GetSerialQueue(uint8 u8dev_uart) {
+	bool_t bCond = TRUE;
+
+	if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
+		// 透過モード
+		if (!IS_APPCONF_OPT_TX_TRIGGER_CHAR()) {
+			if (sSerCmd.u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
+				bCond = FALSE;
+			}
+		} else {
+			if (bPendingTxOnTransparent) {
+				bCond = FALSE;
+			}
+		}
+	} else {
+		// 書式モード
+		if (sSerSeqTx.bWaitComplete // 送信中はキューの取り出しをブロック
+				&& !IS_APPCONF_OPT_TX_NEWER() // 最新データ優先の場合は読み込みブロックをしない
+		) {
+			bCond = FALSE;
+		}
+	}
+
+	if (bCond) {
+		return SERIAL_i16RxChar(u8dev_uart);
+	} else {
+		return (-1);
+	}
+}
 
 /** @ingroup MASTER
  * シリアルポートからの入力を処理する。
  * @param i16CharExt アプリケーション中から、本関数を呼びたい時に入力系列をパラメータ渡しする（ボタンにUARTと共通の機能を割りつけたい場合など）
  */
 void vHandleSerialInput() {
-
-	// RTS の設定
-	uint16 u16RxCt = SERIAL_u16RxQueueCount(sSerPort.u8SerialPort);
+	/* RTS の処理 */
+	uint16 u16RxCt = SERIAL_u16RxQueueCount(u8dev_uart_master);
 
 #ifndef DEBUG_RTS
-	if (u16RxCt> UART_BUFFER_RX_LIMIT_STOP) {
-		// RX キューがリミット以上になったので RTS=HI (受信不可) を設定する
+	if (sAppData.bNwkUp == FALSE) {
+		// ネットワーク未接続時は HI(=受信禁止) にしておく
 		vPortSetHi(PORT_UART_RTS);
-	} else if (u16RxCt < UART_BUFFER_RX_LIMIT_START){
-		// RX キューがリミット以下になったので RTS=LO (受信可) を設定する
-		vPortSetLo(PORT_UART_RTS);
+	} else
+	if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
+		// CHAT_NO_PROMPT では送信中の入力禁止とする
+		if (sSerSeqTx.bWaitComplete) {
+			vPortSetHi(PORT_UART_RTS);
+		} else {
+			vPortSetLo(PORT_UART_RTS);
+		}
+	} else {
+		if (u16RxCt> UART_BUFFER_RX_LIMIT_STOP) {
+			// RX キューがリミット以上になったので RTS=HI (受信不可) を設定する
+			vPortSetHi(PORT_UART_RTS);
+		} else if (u16RxCt < UART_BUFFER_RX_LIMIT_START){
+			// RX キューがリミット以下になったので RTS=LO (受信可) を設定する
+			vPortSetLo(PORT_UART_RTS);
+		}
 	}
 #else
 	static bool_t bStat = TRUE;
@@ -1097,35 +1278,9 @@ void vHandleSerialInput() {
 	}
 #endif
 
-	// handle UART command
-	while (!SERIAL_bRxQueueEmpty(sSerPort.u8SerialPort)) {
-		int16 i16Char = 0xFFFF;
-
-		bool_t bCond = TRUE;
-		if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
-			// 透過モード
-			if (!IS_APPCONF_OPT_TX_BY_CR_ON_TRANSPARENT()) {
-				if (sSerCmd.u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
-					bCond = FALSE;
-				}
-			} else {
-				if (bPendingTxOnTransparent) {
-					bCond = FALSE;
-				}
-			}
-		} else {
-			// 書式モード
-			if (sSerSeqTx.bWaitComplete) {
-				bCond = FALSE;
-			}
-		}
-
-		if (bCond) {
-			i16Char = SERIAL_i16RxChar(sSerPort.u8SerialPort);
-		} else {
-			// 前の入力が処理中なのでキューから取り出さない
-			break;
-		}
+	/* 主UARTポートの処理 */
+	while (!SERIAL_bRxQueueEmpty(u8dev_uart_master)) {
+		int16 i16Char = i16GetSerialQueue(u8dev_uart_master);
 
 		// process
 		if (i16Char >=0 && i16Char <= 0xFF) {
@@ -1157,7 +1312,7 @@ void vHandleSerialInput() {
 
 					if (u8res == E_SERCMD_PLUS3_VERBOSE_OFF) {
 						vfPrintf(&sSerStream, "!INF EXIT INTERACTIVE MODE."LB);
-						sSerCmd.u16timeout = 1000;
+						sSerCmd.u16timeout = u16SerTimeout;
 					}
 
 					// still waiting for bytes.
@@ -1171,7 +1326,7 @@ void vHandleSerialInput() {
 			if (sSerCmd_P3.bverbose) {
 				if (sAppData.u8uart_mode == UART_MODE_ASCII || sAppData.u8uart_mode == UART_MODE_BINARY) {
 					// コマンドの解釈
-					vProcessInputByte_FormatCmd(i16Char);
+					(*pf_vProcessInputByte)(&sSerCmd, i16Char);
 
 					// エコーバック出力
 					if (sSerCmd.u8state != E_SERCMD_EMPTY) {
@@ -1194,10 +1349,117 @@ void vHandleSerialInput() {
 					vProcessInputByte(i16Char);
 				}
 			} else {
-				if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
-					vProcessInputByte_Transparent(i16Char);
+				if (pf_vProcessInputByte) {
+					pf_vProcessInputByte(&sSerCmd, i16Char);
+				}
+			}
+		} else {
+			break;
+		}
+	}
+
+	/* UART の入力タイムアウトを条件として送信する場合 */
+	if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT && sSerCmd.bComplete) {
+		// CHAT_NO_PROMPT ではタイムアウトによる送信処理を行う
+		if (sSerCmd.bComplete(&sSerCmd)) {
+			pf_vProcessInputByte(&sSerCmd, 0xFFFF);
+		}
+	}
+
+	/* 副UARTポート */
+	if (IS_APPCONF_OPT_UART_SLAVE_OUT()) {
+		// 副UARTの入力を処理する。インタラクティブモードだけ処理。
+		while (!SERIAL_bRxQueueEmpty(u8dev_uart_salve)) {
+			int16 i16Char = i16GetSerialQueue(u8dev_uart_master);;
+
+			// 入力のチェック
+			if (i16Char >= 0 && i16Char <= 0xFF) {
+				// 入力コマンドの処理
+				if (sSerCmd_P3.bverbose && INPSTR_bActive(&sSerInpStr)) {
+					// 文字列入力モード
+					uint8 u8res = INPSTR_u8InputByte(&sSerInpStr, (uint8)i16Char);
+
+					if (u8res == E_INPUTSTRING_STATE_COMPLETE) {
+						vProcessInputString(&sSerInpStr);
+					} else if (u8res == E_INPUTSTRING_STATE_CANCELED) {
+						V_PRINT("(canceled)");
+						u16HoldUpdateScreen = 64;
+					}
+					continue;
+				}
+
+				// コマンド書式の系列解釈、および verbose モードの判定
+				{
+					uint8 u8res;
+					u8res = SerCmdPlus3_u8Parse(&sSerCmd_P3, (uint8)i16Char);
+
+					if (u8res != E_SERCMD_PLUS3_EMPTY) {
+						if (u8res == E_SERCMD_PLUS3_VERBOSE_ON) {
+							// verbose モードの判定があった
+							vSerUpdateScreen();
+						}
+
+						if (u8res == E_SERCMD_PLUS3_VERBOSE_OFF) {
+							vfPrintf(&sSerStream, "!INF EXIT INTERACTIVE MODE (SUB_PORT)."LB);
+						}
+					} else {
+						; // コマンド解釈モードではない
+					}
+				}
+
+				// インタラクティブモードのシングルコマンドの処理
+				if (sSerCmd_P3.bverbose) {
+					vProcessInputByte(i16Char);
 				} else {
-					vProcessInputByte_FormatCmd(i16Char);
+					if (pf_vProcessInputByte_Slave) {
+						pf_vProcessInputByte_Slave(&sSerCmd_Slave, i16Char);
+					}
+				}
+			} else {
+				break;
+			}
+		}
+
+		/* UART の入力タイムアウトを条件として送信する場合 */
+		if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT && sSerCmd_Slave.bComplete) {
+			// CHAT_NO_PROMPT ではタイムアウトによる送信処理を行う
+			if (sSerCmd_Slave.bComplete(&sSerCmd_Slave)) {
+				pf_vProcessInputByte_Slave(&sSerCmd_Slave, 0xFFFF);
+			}
+		}
+	}
+}
+
+/** @ingroup MASTER
+ * １バイト入力コマンドの処理
+ * @param u8Byte 入力バイト
+ */
+static void vProcessInputByte_Transparent(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
+	bool_t bData = (u16Byte <= 0xFF);
+	uint8 u8Byte = u16Byte & 0xFF;
+
+	if (!bData) return;
+
+	if (!IS_APPCONF_OPT_TX_TRIGGER_CHAR()) {
+		// sSerCmd の au8data と u16len のみ利用している。
+		// 送信は定期タイマーイベントで実行。
+		pSerCmd->au8data[pSerCmd->u16len++] = u8Byte;
+	} else {
+		pSerCmd->au8data[pSerCmd->u16len++] = u8Byte;
+
+		if (u8Byte == sAppData.sFlash.sData.u8uart_lnsep
+				|| pSerCmd->u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
+			// 透過モードで 0x0D (CR) で送信するモード
+			// （通常は TICKTIMER のイベントハンドラで実行）
+			if (!sSerSeqTx.bWaitComplete) { // 送信中でない事
+				i16Transmit_Transparent();
+			} else {
+				if (IS_APPCONF_OPT_TX_NEWER()) { // 送信中の場合
+					// 系列を破棄する (送信完了後に来たより新しい系列を優先する)
+					pSerCmd->u16len = 0;
+				} else {
+					// 送信をペンディングにする
+					bPendingTxOnTransparent = TRUE;
 				}
 			}
 		}
@@ -1206,35 +1468,57 @@ void vHandleSerialInput() {
 
 /** @ingroup MASTER
  * １バイト入力コマンドの処理
- * @param u8Byte 入力バイト
+ * @param u16Byte 入力バイト (0xFFFF なら入力無しのチェック)
  */
-static void vProcessInputByte_Transparent(uint8 u8Byte) {
-	if (!IS_APPCONF_OPT_TX_BY_CR_ON_TRANSPARENT()) {
-		// sSerCmd の au8data と u16len のみ利用している。
-		// 送信は定期タイマーイベントで実行。
-		sSerCmd.au8data[sSerCmd.u16len++] = u8Byte;
-	} else {
-		sSerCmd.au8data[sSerCmd.u16len++] = u8Byte;
+static void vProcessInputByte_FormatCmd(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
+	bool_t bData = (u16Byte <= 0xFF);
+	uint8 u8Byte = u16Byte & 0xFF;
 
-		if (u8Byte == 0x0D || sSerCmd.u16len >= SERCMD_SER_PKTLEN_MINIMUM) {
-			// 透過モードで 0x0D (CR) で送信するモード
-			// （通常は TICKTIMER のイベントハンドラで実行）
-			if (!sSerSeqTx.bWaitComplete) { // 送信中でない事
-				i16Transmit_Transparent();
-			} else {
-				bPendingTxOnTransparent = TRUE;
+	// コマンド書式の系列解釈、および verbose モードの判定
+	uint8 u8res;
+
+	if (bData) {
+		u8res = pSerCmd->u8Parse(pSerCmd, (uint8)u8Byte);
+	} else {
+		u8res = pSerCmd->u8state;
+	}
+
+	// 完了時の処理
+	if (u8res == E_SERCMD_COMPLETE || u8res == E_SERCMD_CHECKSUM_ERROR) {
+		// 解釈完了
+
+		if (u8res == E_SERCMD_CHECKSUM_ERROR) {
+			// command complete, but CRC error
+			V_PRINT(LB "!INF CHSUM_ERR? (might be %02X)" LB, pSerCmd->u16cksum);
+		}
+
+		if (u8res == E_SERCMD_COMPLETE) {
+			// PAYLOAD が大きすぎる場合は新しくスタート
+			if (pSerCmd->u16len > SERCMD_MAXPAYLOAD) {
+				pSerCmd->u8state = E_SERCMD_EMPTY;
+				return;
 			}
+
+			// process command
+			vProcessSerialCmd(pSerCmd);
+
+			// EMPTY に戻しておく
+			pSerCmd->u8state = E_SERCMD_EMPTY;
 		}
 	}
 }
 
+
 /** @ingroup MASTER
- * １バイト入力コマンドの処理
- * @param u8Byte 入力バイト
+ * １バイト入力コマンドの処理 (UART_MODE_CHAT か UART_MODE_CHAT_NO_PROMPT前提)
+ * @param u16Byte 入力バイト (0xFFFF なら入力無しのチェック)
  */
-static void vProcessInputByte_FormatCmd(uint8 u8Byte) {
+static void vProcessInputByte_Chat(tsSerCmd_Context *pSerCmd, uint16 u16Byte) {
+	bool_t bData = (u16Byte <= 0xFF);
+	uint8 u8Byte = u16Byte & 0xFF;
+
 	// チャットモードの制御コード
-	if (sAppData.u8uart_mode == UART_MODE_CHAT) {
+	if (bData && sAppData.u8uart_mode != UART_MODE_CHAT_NO_PROMPT) {
 		if (u8Byte == 0x0c) { // Ctrl+L
 			vfPrintf(&sSerStream, "%c[2J%c[H", 27, 27); // CLEAR SCREEN
 			vSerChatPrompt();
@@ -1243,74 +1527,81 @@ static void vProcessInputByte_FormatCmd(uint8 u8Byte) {
 	}
 
 	// コマンド書式の系列解釈、および verbose モードの判定
-	uint8 u8Prev = sSerCmd.u8state;
-	uint8 u8res = sSerCmd.u8Parse(&sSerCmd, (uint8)u8Byte);
+	uint8 u8Prev = pSerCmd->u8state;; // cancel 表示のために直前の状態を保存しておく
+	uint8 u8res;
 	bool_t bPrompt = FALSE;
 
+	if (bData) {
+		u8res = pSerCmd->u8Parse(pSerCmd, (uint8)u8Byte);
+	} else {
+		u8res = pSerCmd->u8state;
+	}
+
+	if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT
+			&& IS_APPCONF_OPT_TX_TRIGGER_CHAR()
+			&& u8Byte == sAppData.sFlash.sData.u8uart_lnsep
+			&& pSerCmd->u16len
+			&& pSerCmd->u8state != E_SERCMD_ERROR
+	) {
+		// TX TRIGGER の文字を入力したら、そこで送信する
+		u8res = pSerCmd->u8state = E_SERCMD_COMPLETE;
+	}
+
 	// 完了時の処理
-	if (u8res == E_SERCMD_COMPLETE || u8res == E_SERCMD_CHECKSUM_ERROR) {
-		// 解釈完了
-
-		if (u8res == E_SERCMD_CHECKSUM_ERROR) {
-			// command complete, but CRC error
-			V_PRINT(LB "!INF CHSUM_ERR? (might be %02X)" LB, sSerCmd.u16cksum);
-		}
-
-		if (u8res == E_SERCMD_COMPLETE) {
+	if (u8res == E_SERCMD_COMPLETE) {
+		if (sAppData.u8uart_mode == UART_MODE_CHAT) {
 			// チャットモードのときは末尾にハンドル名を付記する
 			// 書式：
 			//   {入力テキスト} [0x0][0x0] <= ハンドル名未設定
 			//   {入力テキスト} [0x0] {ハンドル名} [0x0]
-			if (sAppData.u8uart_mode == UART_MODE_CHAT || sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
-				sSerCmd.au8data[sSerCmd.u16len] = 0x00; // 最初は０
-				sSerCmd.u16len++;
+			pSerCmd->au8data[pSerCmd->u16len] = 0x00; // 最初は０
+			pSerCmd->u16len++;
 
-				uint8 *p = sAppData.sFlash.sData.au8ChatHandleName;
-				while(*p) {
-					sSerCmd.au8data[sSerCmd.u16len] = *p;
-					sSerCmd.u16len++;
-					p++;
-				}
-
-				sSerCmd.au8data[sSerCmd.u16len] = 0x00; // 末尾も０
-				sSerCmd.u16len++;
+			uint8 *p = sAppData.sFlash.sData.au8ChatHandleName;
+			while(*p) {
+				pSerCmd->au8data[pSerCmd->u16len] = *p;
+				pSerCmd->u16len++;
+				p++;
 			}
 
-			// PAYLOAD が大きすぎる場合は新しくスタート
-			if (sSerCmd.u16len > SERCMD_MAXPAYLOAD) {
-				sSerCmd.u8state = E_SERCMD_EMPTY;
-
-				if (sAppData.u8uart_mode == UART_MODE_CHAT || sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
-					vfPrintf(&sSerStream, "(err:too long)");
-				}
-
-				return;
-			}
-
-			// process command
-			if (sAppData.u8uart_mode == UART_MODE_CHAT || sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
-				// チャットモードの場合は、系列を送信する。
-				if (sSerCmd.u16len) {
-					i16TransmitSerMsg(
-						sSerCmd.au8data, sSerCmd.u16len, NULL,
-						ToCoNet_u32GetSerial(),
-						sAppData.u8AppLogicalId,
-						TOCONET_NWK_ADDR_NULL,
-						LOGICAL_ID_BROADCAST,
-						FALSE,
-						sAppData.u8UartReqNum,
-						sAppData.u8UartReqNum);
-					sAppData.u8UartReqNum++;
-					bPrompt = TRUE;
-				}
-			} else {
-				vProcessSerialCmd(&sSerCmd);
-			}
+			pSerCmd->au8data[pSerCmd->u16len] = 0x00; // 末尾も０
+			pSerCmd->u16len++;
 		}
+
+		// PAYLOAD が大きすぎる場合は新しくスタート
+		if (pSerCmd->u16len > SERCMD_MAXPAYLOAD || pSerCmd->u16len > pSerCmd->u16maxlen) {
+			pSerCmd->u8state = E_SERCMD_EMPTY;
+
+			if (sAppData.u8uart_mode != UART_MODE_CHAT_NO_PROMPT) {
+				vfPrintf(&sSerStream, "(err:too long)");
+			}
+
+			return;
+		}
+
+		// process command
+		// チャットモードの場合は、系列をそのまま送信する。
+		if (pSerCmd->u16len) {
+			i16TransmitSerMsg(
+				pSerCmd->au8data, pSerCmd->u16len, NULL,
+				ToCoNet_u32GetSerial(),
+				sAppData.u8AppLogicalId,
+				TOCONET_NWK_ADDR_NULL,
+				LOGICAL_ID_BROADCAST,
+				FALSE,
+				sAppData.u8UartReqNum,
+				sAppData.u8UartReqNum,
+				0);
+			sAppData.u8UartReqNum++;
+			bPrompt = TRUE;
+		}
+
+		// EMPTY に戻しておく
+		pSerCmd->u8state = E_SERCMD_EMPTY;
 	}
 
 	// チャットモードの後出力処理
-	if (sAppData.u8uart_mode == UART_MODE_CHAT) {
+	if (bData && sAppData.u8uart_mode != UART_MODE_CHAT_NO_PROMPT) {
 		// チャットモードのエコーバック
 		if (u8res != E_SERCMD_EMPTY // 何か入力中
 			&& u8res < 0x80 // エラー検出でもない
@@ -1349,8 +1640,6 @@ static void vProcessInputByte_FormatCmd(uint8 u8Byte) {
 	}
 }
 
-
-
 /** @ingroup MASTER
  * シリアルから入力されたコマンド形式の電文を処理する。
  * @param pSer
@@ -1383,6 +1672,18 @@ static void vProcessSerialCmd(tsSerCmd_Context *pSer) {
 		switch(u8cmd) {
 		case SERCMD_ID_ACK:
 			vSerResp_Ack(TRUE);
+			break;
+
+		case SERCMD_ID_MODULE_CONTROL:
+			if (p < p_end) {
+				uint8 u8ctl = G_OCTET();
+
+				if (u8ctl == SERCMD_ID_MODULE_CONTROL_RELEASE_SILENT) {
+					if (sAppData.bSilent) {
+						ToCoNet_Event_Process(E_ORDER_KICK, 0, vProcessEvCore);
+					}
+				}
+			}
 			break;
 
 		case SERCMD_ID_GET_MODULE_ADDRESS:
@@ -1420,14 +1721,16 @@ static void vProcessSerialCmd(tsSerCmd_Context *pSer) {
 	} else {
 		if (pSer->u16len >= 3) {
 			i16TransmitSerMsg(
-				pSer->au8data, pSer->u16len, NULL,
+				pSer->au8data + 2, pSer->u16len - 2, NULL,
 				ToCoNet_u32GetSerial(),
-				sAppData.u8AppLogicalId,
+				sAppData.u8AppLogicalId, // 送信元論理ID
 				TOCONET_NWK_ADDR_NULL,
-				pSer->au8data[0],
+				pSer->au8data[0], // あて先論理ID
 				FALSE,
 				sAppData.u8UartReqNum | 0x80,
-				sAppData.u8UartReqNum | 0x80);
+				sAppData.u8UartReqNum | 0x80,
+				pSer->au8data[1] // ２バイト目コマンド
+				);
 			sAppData.u8UartReqNum++;
 		}
 	}
@@ -1532,17 +1835,15 @@ static void vProcessSerialCmd_TransmitEx(tsSerCmd_Context *pSer) {
 	}
 
 	if (p < p_end) {
-		p = p - 2;
-		p[0] = u8addr;
-		p[1] = u8cmd;
-
 		if (i16TransmitSerMsg(p, p_end - p, &sTx,
 				ToCoNet_u32GetSerial(), sAppData.u8AppLogicalId,
 				u32AddrDst, u8addr,
-				FALSE, sAppData.u8UartReqNum++, u8resp) == -1) {
+				FALSE, sAppData.u8UartReqNum++, u8resp, u8cmd) == -1) {
 
 			// エラー応答の出力
-			vSerResp_TxEx(u8resp, 0x0);
+			if (!IS_APPCONF_OPT_NO_TX_RESULT()) {
+				vSerResp_TxEx(u8resp, 0x0);
+			}
 		}
 	}
 
@@ -1563,8 +1864,8 @@ static void vProcessSerialCmd_TransmitEx(tsSerCmd_Context *pSer) {
  *   - [4] BE_DWORD : 宛先、拡張アドレス
  *   - [2] BE_WORD  : 送信タイムスタンプ (64fps カウンタの値の下１６ビット, 約1000秒で１周する)
  *   - [1] OCTET    : パケット群の識別ID
- *   - [1] OCTET    : パケット数(total)
- *   - [1] OCTET    : パケット番号 (0...total-1)
+ *   - [1] OCTET    : パケット番号 (0...total-1) / パケット数(total)
+ *   - [1] OCTET    : 拡張情報
  *
  * @param p 送信データ（実際に送信したいデータ部で各種ヘッダは含まない）
  * @param u16len データ長
@@ -1580,9 +1881,9 @@ static void vProcessSerialCmd_TransmitEx(tsSerCmd_Context *pSer) {
  */
 static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate,
 		uint32 u32AddrSrc, uint8 u8AddrSrc, uint32 u32AddrDst, uint8 u8AddrDst,
-		bool_t bRelay, uint8 u8Req, uint8 u8RspId) {
+		uint8 u8Relay, uint8 u8Req, uint8 u8RspId, uint8 u8Opt) {
 
-	if(IS_APPCONF_ROLE_SILENT_MODE()) return -1;
+	if(sAppData.bSilent) return -1;
 
 	// 処理中のチェック（処理中なら送信せず失敗）
 	if (sSerSeqTx.bWaitComplete) {
@@ -1679,7 +1980,7 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		// MAC 直接の送受信
 
 		// 送信設定の微調整を行う
-		if (bRelay) {
+		if (u8Relay) {
 			sTx.u8Retry = DEFAULT_TX_FFFF_COUNT; // ３回送信する
 			sTx.u16DelayMin = DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms; // 中継時の遅延
 			sTx.u16RetryDur = sSerSeqTx.u8PktNum * 10; // application retry
@@ -1724,7 +2025,7 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		sTx.u8Seq = (sSerSeqTx.u8Seq + i) & CBID_MASK_BASE;
 		sTx.u8CbId = (sSerSeqTx.u8PktNum > 1) ? (sTx.u8Seq | CBID_MASK_SPLIT_PKTS) : sTx.u8Seq; // callback will reported with this ID
 
-		if (bRelay || bNoResponse) { // 中継パケットおよび応答なしフラグの時は完了メッセージを返さない
+		if (u8Relay || bNoResponse) { // 中継パケットおよび応答なしフラグの時は完了メッセージを返さない
 			sTx.u8CbId |= CBID_MASK_SILENT;
 		}
 
@@ -1735,8 +2036,8 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		sTx.u8Cmd = au8UartModeToTxCmdId[sAppData.u8uart_mode];
 
 		// ペイロードを構成
-		S_OCTET(sAppData.u8AppIdentifier + (bRelay ? 1 : 0));
-		S_OCTET(APP_PROTOCOL_VERSION);
+		S_OCTET(sAppData.u8AppIdentifier);
+		S_OCTET(APP_PROTOCOL_VERSION + (u8Relay << 6));
 
 		S_OCTET(sSerSeqTx.u8RespID); // 応答ID
 
@@ -1752,8 +2053,11 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		}
 
 		S_OCTET(sSerSeqTx.u8ReqNum); // request number
-		S_OCTET(sSerSeqTx.u8PktNum); // total packets
-		S_OCTET(i); // packet number
+
+		uint8 u8pktinfo = (i << 4) + sSerSeqTx.u8PktNum;
+		S_OCTET(u8pktinfo); //トータルパケット数とパケット番号
+
+		S_OCTET(u8Opt); // ペイロードのオプション(コマンド、など)
 
 		uint8 u8len_data = (u16len >= SERCMD_SER_PKTLEN) ? SERCMD_SER_PKTLEN : u16len;
 
@@ -1792,7 +2096,8 @@ static int16 i16Transmit_Transparent() {
 			sAppData.u8AppLogicalId_Pair,
 			FALSE,
 			sAppData.u8UartReqNum,
-			sAppData.u8UartReqNum);
+			sAppData.u8UartReqNum,
+			0);
 
 	if (i16ret != -1) {
 		// 送信出来たのでバッファ長さを巻き戻す
@@ -1819,20 +2124,25 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 
 	/* ヘッダ情報の読み取り */
 	uint8 u8AppIdentifier = G_OCTET();
-	if ((u8AppIdentifier & 0xFE) != sAppData.u8AppIdentifier) { return; }
+	if (u8AppIdentifier != sAppData.u8AppIdentifier) { return; }
 	uint8 u8PtclVersion = G_OCTET();
+	uint8 u8RepeatFlag = u8PtclVersion >> 6;
+	u8PtclVersion &= 0x1F;
 	if (u8PtclVersion != APP_PROTOCOL_VERSION) { return; }
 	uint8 u8RespId = G_OCTET();
 	uint8 u8AppLogicalId = G_OCTET(); (void)u8AppLogicalId;
 	uint32 u32AddrSrc = pRx->bNwkPkt ? pRx->u32SrcAddr : G_BE_DWORD();
 	uint8 u8AppLogicalId_Dest = G_OCTET();
 	uint32 u32AddrDst = pRx->bNwkPkt ? pRx->u32DstAddr : G_BE_DWORD();
-	uint8 bRepeatFlag = u8AppIdentifier & 0x1;
 
 	/* ここから中身 */
 	uint8 u8req = G_OCTET();
-	uint8 u8pktnum = G_OCTET();
-	uint8 u8idx = G_OCTET();
+	uint8 u8pktsplitinfo = G_OCTET();
+
+	uint8 u8pktnum = u8pktsplitinfo & 0xF;
+	uint8 u8idx = (u8pktsplitinfo & 0xF0) >> 4;
+
+	uint8 u8opt = G_OCTET();
 
 	uint8 u8len = (pRx->auData + pRx->u8Len) - p;
 	uint16 u16offset = u8idx * SERCMD_SER_PKTLEN;
@@ -1975,8 +2285,8 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 			}
 
 			// 中継パケットのフラグを格納する
-			if (bRepeatFlag) {
-				sSerSeqRx.bRelayPacket = TRUE;
+			if (u8RepeatFlag > sSerSeqRx.u8RelayPacket) {
+				sSerSeqRx.u8RelayPacket = u8RepeatFlag;
 			}
 		}
 
@@ -1990,33 +2300,43 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 			// 分割パケットが全て届いた！
 
 			// 中継を行うかの判定
-			bool_t bCondRepeat = FALSE;
-			if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
-				// 透過モード
-				if ((IS_REPEATER() && !bAcceptAddress) || IS_DEDICATED_REPEATER()) {
+			if (IS_REPEATER()) {
+				bool_t bCondRepeat = FALSE;
+				if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT) {
+					// 透過モード
+					if ((IS_REPEATER() && !bAcceptAddress) || IS_DEDICATED_REPEATER()) {
+						bCondRepeat = TRUE;
+					}
+				} else
+				if (IS_REPEATER() && (bAcceptBroadCast || (!bAcceptAddress))) {
 					bCondRepeat = TRUE;
 				}
-			} else
-			if (IS_REPEATER() && (bAcceptBroadCast || (!bAcceptAddress))) {
-				bCondRepeat = TRUE;
-			}
 
-			// リピータで、パケットがブロードキャスト、または、送信アドレス
-			if (bCondRepeat && sSerSeqRx.bRelayPacket) {
-				// まだ中継されていないパケットなら、中継する
-				i16TransmitSerMsg(
-						au8SerBuffRx,
-						sSerSeqRx.u16DataLen,
-						NULL,
-						sSerSeqRx.u32SrcAddr,
-						sSerSeqRx.u8IdSender,
-						sSerSeqRx.u32DstAddr,
-						sSerSeqRx.u8IdReceiver,
-						TRUE,
-						sSerSeqRx.u8ReqNum,
-						sSerSeqRx.u8RespID);
+				// カウント数を超えていたらこれ以上リピートしない
+				if (bCondRepeat && sSerSeqRx.u8RelayPacket >= REPEATER_MAX_COUNT()) {
+					bCondRepeat = FALSE;
+					DBGOUT(1, "<RPT EXPIRE(%d) FR:%02X TO:%02X #:%02X>", sSerSeqRx.u8RelayPacket, sSerSeqRx.u8IdSender, sSerSeqRx.u8IdReceiver, sSerSeqRx.u8ReqNum);
+				}
 
-				DBGOUT(1, "<RPT FR:%02X TO:%02X #:%02X>", sSerSeqRx.u8IdSender, sSerSeqRx.u8IdReceiver, sSerSeqRx.u8ReqNum);
+				// リピータで、パケットがブロードキャスト、または、送信アドレス
+				if (bCondRepeat && sSerSeqRx.u8RelayPacket) {
+					// まだ中継されていないパケットなら、中継する
+					i16TransmitSerMsg(
+							au8SerBuffRx,
+							sSerSeqRx.u16DataLen,
+							NULL,
+							sSerSeqRx.u32SrcAddr,
+							sSerSeqRx.u8IdSender,
+							sSerSeqRx.u32DstAddr,
+							sSerSeqRx.u8IdReceiver,
+							sSerSeqRx.u8RelayPacket + 1,
+							sSerSeqRx.u8ReqNum,
+							sSerSeqRx.u8RespID,
+							u8opt
+							);
+
+					DBGOUT(1, "<RPT(%d) FR:%02X TO:%02X #:%02X>", sSerSeqRx.u8RelayPacket, sSerSeqRx.u8IdSender, sSerSeqRx.u8IdReceiver, sSerSeqRx.u8ReqNum);
+				}
 			}
 
 			// 自分宛のメッセージなら、UART に出力する
@@ -2042,7 +2362,7 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 							vPutChar(&sSerStream, au8SerBuffRx[j]);
 						}
 					}
-				} else if (sAppData.u8uart_mode == UART_MODE_CHAT || sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
+				} else if (sAppData.u8uart_mode == UART_MODE_CHAT) {
 					// Chat モードは送り元情報付きで送信する。
 					int i, len = 0;
 
@@ -2071,35 +2391,45 @@ static void vReceiveSerMsg(tsRxDataApp *pRx) {
 
 					// プロンプトの表示
 					vSerChatPrompt();
+				} else if (sAppData.u8uart_mode == UART_MODE_CHAT_NO_PROMPT) {
+					sSerCmdOut.u16len = sSerSeqRx.u16DataLen;
+					sSerCmdOut.vOutput(&sSerCmdOut, &sSerStream);
 				} else {
-					if (sSerCmdOut.au8data[1] == SERCMD_ID_TRANSMIT_EX) {
+					int8 I8HEAD = 0;
+
+					if (u8opt == SERCMD_ID_TRANSMIT_EX) {
 						// 拡張形式のパケットの出力
-						const int8 I8HEAD = -12; // １２バイト分のヘッダを追加して出力
+						I8HEAD = -14; // バイト分のヘッダを追加して出力
 
 						uint8 *q = sSerCmdOut.au8data + I8HEAD; // このバッファは後ろ１６バイトまで有効
-						S_OCTET(sSerSeqRx.u8IdSender);
-						S_OCTET(sSerCmdOut.au8data[1]);
-						S_OCTET(sSerSeqRx.u8RespID);
 
+						// 以下ヘッダは１４バイト
+						S_OCTET(sSerSeqRx.u8IdSender);
+						S_OCTET(u8opt);
+						S_OCTET(sSerSeqRx.u8RespID);
 						S_BE_DWORD(u32AddrSrc);
 						S_BE_DWORD(u32AddrDst);
-
 						S_OCTET(pRx->u8Lqi);
+						S_OCTET(sSerSeqRx.u16DataLen >> 8);
+						S_OCTET(sSerSeqRx.u16DataLen & 0xFF);
 
-						// 実ペイロード長を格納
-						S_OCTET((sSerSeqRx.u16DataLen - 2) >> 8);
-						S_OCTET((sSerSeqRx.u16DataLen - 2) & 0xFF);
-
-						sSerCmdOut.u16len = sSerSeqRx.u16DataLen - I8HEAD;
-						sSerCmdOut.au8data = sSerCmdOut.au8data + I8HEAD;
-						sSerCmdOut.vOutput(&sSerCmdOut, &sSerStream);
-						sSerCmdOut.au8data = sSerCmdOut.au8data - I8HEAD;
 					} else {
-						// 標準形式のパケットの出力
-						sSerCmdOut.u16len = sSerSeqRx.u16DataLen;
-						sSerCmdOut.au8data[0] = sSerSeqRx.u8IdSender; // １バイト目のアドレスだけ入れ替える
-						sSerCmdOut.vOutput(&sSerCmdOut, &sSerStream);
+						// 標準形式のヘッダ出力
+						I8HEAD = -2; // バイト分のヘッダを追加して出力
+
+						uint8 *q = sSerCmdOut.au8data + I8HEAD; // このバッファは後ろ１６バイトまで有効
+
+						// 以下ヘッダは２バイト
+						S_OCTET(sSerSeqRx.u8IdSender);
+						S_OCTET(u8opt);
 					}
+
+					// UART 出力を行う
+					sSerCmdOut.u16len = sSerSeqRx.u16DataLen - I8HEAD;
+					uint8 *p_bak = sSerCmdOut.au8data;
+					sSerCmdOut.au8data = sSerCmdOut.au8data + I8HEAD;
+					sSerCmdOut.vOutput(&sSerCmdOut, &sSerStream);
+					sSerCmdOut.au8data = p_bak;
 				}
 			}
 
@@ -2134,6 +2464,9 @@ static void vSleep0(uint32 u32SleepDur_ms, bool_t bPeriodic, bool_t bDeep) {
 	ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, u32SleepDur_ms, bPeriodic, bDeep); // PERIODIC RAM OFF SLEEP USING WK0
 }
 
+/** @ingroup MASTER
+ * IO・ペリフェラルの前処理を行ってスリープを実行する。
+ */
 static void vSleep() {
 	// DBGOUT(0,"!SLEEP"LB);
 

@@ -71,6 +71,8 @@ typedef struct {
 
 	// Network mode
 	teNwkMode eNwkMode; //!< ネットワークモデル(未使用：将来のための拡張用)
+	bool_t bNwkUp; //!< ネットワークが稼働状態かどうかのフラグ
+	bool_t bSilent; //!< サイレント状態なら TRUE
 	uint8 u8AppLogicalId; //!< ネットワーク時の抽象アドレス 0:親機 1~:子機
 	uint8 u8AppLogicalId_Pair; //!< 透過モードの相手先のアドレス
 	uint16 u16ShAddr_Pair; //!< 透過モードの相手先のショートアドレス
@@ -83,6 +85,7 @@ typedef struct {
 	tsFlash sFlash; //!< フラッシュからの読み込みデータ
 	tsFlashApp sConfig_UnSaved; //!< フラッシュへの設定データ (0xFF, 0xFFFFFFFF は未設定)
 	int8 bFlashLoaded; //!< フラッシュからの読み込みが正しく行われた場合は TRUE
+	int8 bCustomDefaults; //!< ファームウェア末尾にあるデフォルトカスタムの呼び出しに成功したら TRUE
 
 	// config mode
 	uint8 u8Mode; //!< 動作モード(IO M1,M2,M3 から設定される)
@@ -128,7 +131,7 @@ typedef struct {
 	bool_t bWaitComplete; //!< 終了フラグ
 	bool_t bSleepOnFinish; //!< 終了時にスリープする
 
-	bool_t bRelayPacket; //!< 中継パケットが含まれる？この場合再中継しない。
+	uint8 u8RelayPacket; //!< リピート中継済み回数
 } tsSerSeq;
 
 /****************************************************************************
@@ -157,48 +160,39 @@ typedef struct {
 #define FL_IS_MODIFIED_u8(c) (sAppData.sConfig_UnSaved.u8##c != 0xFF) //!< 構造体要素アクセス用のマクロ @ingroup FLASH
 
 /** @ingroup FLASH
- * フラッシュ設定内容の列挙体
- */
-enum {
-	E_APPCONF_APPID = 0,      //!< E_APPCONF_APPID
-	E_APPCONF_CHMASK = 1,     //!< E_APPCONF_CHMASK
-	E_APPCONF_POWER = 2,      //!< E_APPCONF_POWER
-	E_APPCONF_ID = 3,         //!< E_APPCONF_ID
-	E_APPCONF_ROLE = 4,       //!< E_APPCONF_ROLE
-	E_APPCONF_LAYER  = 5,     //!< E_APPCONF_LAYER
-	E_APPCONF_UART_MODE = 6,  //!< E_APPCONF_UART_MODE
-	E_APPCONF_BAUD_SAFE = 7,  //!< E_APPCONF_BAUD_SAFE
-	E_APPCONF_BAUD_PARITY = 8,//!< E_APPCONF_BAUD_PARITY
-	E_APPCONF_CRYPT_MODE = 9, //!< E_APPCONF_CRYPT_MODE
-	E_APPCONF_CRYPT_KEY = 10,  //!< E_APPCONF_CRYPT_KEY
-	E_APPCONF_HANDLE_NAME = 11,//!< E_APPCONF_HANDLE_NAME
-	E_APPCONF_OPT_BITS = 0x80,   //!< E_APPCONF_OPT_BITS
-	E_APPCONF_VOID            //!< E_APPCONF_TEST
-};
-
-/** @ingroup FLASH
  * フラッシュ設定で ROLE に対する要素名の列挙体
  * (未使用、将来のための拡張のための定義)
  */
 enum {
 	E_APPCONF_ROLE_MAC_NODE = 0,  //!< MAC直接のノード（親子関係は無し）
-	E_APPCONF_ROLE_MAC_NODE_REPEATER, //!< リピーター定義
+	E_APPCONF_ROLE_MAC_NODE_REPEATER = 1, //!< リピーター定義
+	E_APPCONF_ROLE_MAC_NODE_REPEATER2 = 2 , //!< リピーター定義
+	E_APPCONF_ROLE_MAC_NODE_REPEATER3 = 3, //!< リピーター定義
+	E_APPCONF_ROLE_MAC_NODE_MAX = 0x0F,
 	E_APPCONF_ROLE_NWK_MASK = 0x10, //!< NETWORKモードマスク
 	E_APPCONF_ROLE_PARENT,          //!< NETWORKモードの親
 	E_APPCONF_ROLE_ROUTER,        //!< NETWORKモードの子
-	E_APPCONF_ROLE_ENDDEVICE,     //!< NETWORKモードの子（未使用、スリープ対応）
-	E_APPCONF_ROLE_SILENT = 0x7F, //!< 何もしない（設定のみ)
+	E_APPCONF_ROLE_ENDDEVICE,     //!< NETWORKモードの子（スリープ対応）
+	E_APPCONF_ROLE_SILENT_MASK = 0x80, //!< 無線を動作させないモード
 };
 
-/** サイレントモードの判定マクロ  @ingroup FLASH */
-#define IS_APPCONF_ROLE_SILENT_MODE() (sAppData.sFlash.sData.u8role == E_APPCONF_ROLE_SILENT)
+/** ROLE 設定のサイレントモードの判定マクロ  @ingroup FLASH */
+#define IS_APPCONF_ROLE_SILENT_MODE() (sAppData.sFlash.sData.u8role & E_APPCONF_ROLE_SILENT_MASK)
 
-/** リピーターの判定 @ingroup FLASH */
-#define IS_REPEATER() (sAppData.sFlash.sData.u8role == E_APPCONF_ROLE_MAC_NODE_REPEATER)
+/** ROLE の主設定部分を取り出す */
+#define APPCONF_ROLE() (sAppData.sFlash.sData.u8role & 0x7F)
+
+/** ROLE 設定のリピーターの判定マクロ @ingroup FLASH */
+#define IS_REPEATER() (APPCONF_ROLE()  >= E_APPCONF_ROLE_MAC_NODE_REPEATER && APPCONF_ROLE() <= E_APPCONF_ROLE_MAC_NODE_REPEATER3)
+
+/** リピートの最大回数 @ingroup FLASH */
+#define REPEATER_MAX_COUNT() (APPCONF_ROLE())
+
 /** 専業リピーターの判定 @ingroup FLASH */
 #define IS_DEDICATED_REPEATER() (IS_REPEATER() && IS_LOGICAL_ID_REPEATER(sAppData.u8AppLogicalId))
 /** 子機兼リピーターの判定 @ingroup FLASH */
 #define IS_CHILD_REPEATER() (IS_REPEATER() && IS_LOGICAL_ID_CHILD(sAppData.u8AppLogicalId))
+
 
 /** AES 利用のマクロ判定  @ingroup FLASH */
 #define IS_CRYPT_MODE() (sAppData.sFlash.sData.u8Crypt)

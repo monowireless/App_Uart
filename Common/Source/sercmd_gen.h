@@ -95,6 +95,7 @@ struct _sSerCmd_Context {
 
 	uint8 (*u8Parse)(tsSerCmd_Context *pc, uint8 u8byte); //!< 入力用の関数
 	void (*vOutput)(tsSerCmd_Context *pc, tsFILE *ps); //!< 出力用の関数
+	bool_t (*bComplete)(tsSerCmd_Context *pc); //!< 完了確認
 };
 
 /*
@@ -103,5 +104,6 @@ struct _sSerCmd_Context {
 void SerCmdBinary_vInit(tsSerCmd_Context *pc, uint8 *pbuff, uint16 u16maxlen);
 void SerCmdAscii_vInit(tsSerCmd_Context *pc, uint8 *pbuff, uint16 u16maxlen);
 void SerCmdChat_vInit(tsSerCmd_Context *pc, uint8 *pbuff, uint16 u16maxlen);
+void SerCmdTimeout_vInit(tsSerCmd_Context *pc, uint8 *pbuff, uint16 u16maxlen);
 
 #endif /* SERCMD_GEN_H_ */

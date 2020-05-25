@@ -1,6 +1,14 @@
 以下を参照してください。
 http://tocos-wireless.com/jp/products/TWE-ZERO/App_Uart/
 
+* 専業リピータの設定（隠し設定）
+  MODE=3 専業リピータ (または id=122 設定)
+  role=0,1 は中継１回
+
+* 中継子機の設定
+  role=0 は中継なし
+  role=1～3 は中継
+
 [v1.0.9]
   - USE_QUICK_SHOT の正式採用
   - 80バイト以上のコマンドペイロード時にハングアップした問題を修正
@@ -38,3 +46,4 @@ http://tocos-wireless.com/jp/products/TWE-ZERO/App_Uart/
 :78A05A08FF00112233X
 
 :78A05A0708FF00112233X
+＝＝＝

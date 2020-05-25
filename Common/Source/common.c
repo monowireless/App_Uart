@@ -91,3 +91,11 @@ uint16 SERIAL_u16TxQueueCount(uint8 u8port) {
 	return QUEUE__u16Count(&asSerialPorts[u8port].sTxQueue);
 }
 
+/**
+ * シリアルの出力を UART0, 1 共に出力
+ */
+bool_t   SERIAL_bTxCharDuo(uint8 u8SerialPort, uint8 u8Chr) {
+	SERIAL_bTxChar(UART_PORT_MASTER, u8Chr);
+	SERIAL_bTxChar(UART_PORT_SLAVE, u8Chr);
+	return TRUE;
+}

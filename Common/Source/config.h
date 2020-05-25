@@ -73,20 +73,19 @@ extern "C" {
 #define DEFAULT_TX_FFFF_DUR_ms 4 //!< 再送時の間隔
 #define DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms 20 //!< 中継時の遅延
 
-#undef NWK_LAYER //!< ネットワーク層を利用する
+#define NWK_LAYER //!< ネットワーク層を利用する
 #undef NWK_LAYER_FORCE //!< デフォルトでネットワーク層を使用する
 
-#define USE_AES
-#define USE_DIO_SLEEP
+#define USE_AES //!< AES を利用する
+#define USE_DIO_SLEEP //!< IOポート監視スリープを利用する
 
-// 設定セット
-//#define CONFIG_000_0
-//#define CONFIG_002
+#define DEFAULT_OPT_BITS 0x00000000UL //!< デフォルトのオプションビット
 
 /* このセットでは、
  *   UART1, 38400bps 8N1 で動作させる
  */
 #ifdef CONFIG_000_1
+#define CONFIG_CUSTOM
 #warning "Custom configuration 000_1"
 #undef UART_BAUD
 #define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）
@@ -101,6 +100,7 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_000_0
+#define CONFIG_CUSTOM
 #warning "Custom configuration 000_0"
 #undef UART_BAUD
 #define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）
@@ -116,6 +116,7 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_001
+#define CONFIG_CUSTOM
 #warning "Custom configuration 001"
 #undef UART_PORT_MASTER
 #define UART_PORT_MASTER    E_AHI_UART_0 //!< UARTポートの指定
@@ -126,6 +127,7 @@ extern "C" {
 #endif
 
 #ifdef CONFIG_002
+#define CONFIG_CUSTOM
 #warning "Custom configuration 002
 #undef UART_BAUD
 #define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）"
@@ -135,6 +137,37 @@ extern "C" {
 #define UART_MODE_DEFAULT 2 //!< 0:Transparent, 1:Ascii format, 2:Binary
 #undef NWK_LAYER
 #endif
+
+/*
+ * UART1 デフォルト
+ */
+#ifdef CONFIG_003
+#define CONFIG_CUSTOM
+#warning "Custom configuration 003"
+#undef DEFAULT_OPT_BITS
+#define DEFAULT_OPT_BITS 0x60000UL
+#endif
+
+#ifdef CONFIG_38400BPS_BINARY
+#define CONFIG_CUSTOM
+#warning "Custom configuration 003"
+#undef UART_BAUD
+#define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）
+#undef UART_MODE_DEFAULT
+#define UART_MODE_DEFAULT 2 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#endif
+
+#ifdef CONFIG_NORMAL
+#define CONFIG_CUSTOM
+#endif
+
+#ifndef CONFIG_CUSTOM
+# error "NO_CONFIG_OPTION, SET APP_UART_CONFIG=CONFIG_NORMAL, OR ELSE IN YOUR MAKE PARAMETER "
+#endif
+/**
+ * サブ UART ポートの定義 (MASTER が定義されてから)
+ */
+#define UART_PORT_SLAVE (1-UART_PORT_MASTER)
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/

@@ -47,14 +47,14 @@
  */
 bool_t bFlash_Read(tsFlash *psFlash, uint8 sector, uint32 offset) {
     bool_t bRet = FALSE;
-    offset += (uint32)sector * FLASH_SECTOR_SIZE; // calculate the absolute address
-
 
 #ifdef USE_EEPROM
     if (EEP_6x_bRead(0, sizeof(tsFlash), (uint8 *)psFlash)) {
     	bRet = TRUE;
     }
 #else
+    offset += (uint32)sector * FLASH_SECTOR_SIZE; // calculate the absolute address
+
     if (bAHI_FlashInit(FLASH_TYPE, NULL) == TRUE) {
         if (bAHI_FullFlashRead(offset, sizeof(tsFlash), (uint8 *)psFlash)) {
             bRet = TRUE;
@@ -63,11 +63,8 @@ bool_t bFlash_Read(tsFlash *psFlash, uint8 sector, uint32 offset) {
 #endif
 
     // validate content
-    if (bRet && psFlash->u32Magic != FLASH_MAGIC_NUMBER) {
-    	bRet = FALSE;
-    }
-    if (bRet && psFlash->u8CRC != u8CCITT8((uint8*)&(psFlash->sData), sizeof(tsFlashApp))) {
-    	bRet = FALSE;
+    if (bRet) {
+    	bRet = bFlash_DataValidateHeader(psFlash);
     }
 
     return bRet;
@@ -86,16 +83,14 @@ bool_t bFlash_Write(tsFlash *psFlash, uint8 sector, uint32 offset)
     offset += (uint32)sector * FLASH_SECTOR_SIZE; // calculate the absolute address
 
 #ifdef USE_EEPROM
-	psFlash->u32Magic = FLASH_MAGIC_NUMBER;
-	psFlash->u8CRC = u8CCITT8((uint8*)&(psFlash->sData), sizeof(tsFlashApp));
+    bFlash_DataRecalcHeader(psFlash);
 	if (EEP_6x_bWrite(0, sizeof(tsFlash), (uint8 *)psFlash)) {
 		bRet = TRUE;
 	}
 #else
     if (bAHI_FlashInit(FLASH_TYPE, NULL) == TRUE) {
         if (bAHI_FlashEraseSector(sector) == TRUE) { // erase a corresponding sector.
-        	psFlash->u32Magic = FLASH_MAGIC_NUMBER;
-        	psFlash->u8CRC = u8CCITT8((uint8*)&(psFlash->sData), sizeof(tsFlashApp));
+        	bFlash_DataRecalcHeader(psFlash);
             if (bAHI_FullFlashProgram(offset, sizeof(tsFlash), (uint8 *)psFlash)) {
                 bRet = TRUE;
             }
@@ -132,4 +127,33 @@ bool_t bFlash_Erase(uint8 sector)
 #endif
 
     return bRet;
+}
+
+/**  @ingroup FLASH
+ * フラッシュデータ構造体のヘッダが適正かチェックする
+ * @return TRUE:正常 FALSE:異常またはデータ無し
+ */
+bool_t bFlash_DataValidateHeader(tsFlash *psFlash) {
+	bool_t bRet = TRUE;
+
+    // validate content
+    if (bRet && psFlash->u32Magic != FLASH_MAGIC_NUMBER) {
+    	bRet = FALSE;
+    }
+    if (bRet && psFlash->u8CRC != u8CCITT8((uint8*)&(psFlash->sData), sizeof(tsFlashApp))) {
+    	bRet = FALSE;
+    }
+
+    return bRet;
+}
+
+/**  @ingroup FLASH
+ * フラッシュデータ構造体のヘッダを再計算する
+ * @return TRUE
+ */
+bool_t bFlash_DataRecalcHeader(tsFlash *psFlash) {
+	psFlash->u32Magic = FLASH_MAGIC_NUMBER;
+	psFlash->u8CRC = u8CCITT8((uint8*)&(psFlash->sData), sizeof(tsFlashApp));
+
+	return TRUE;
 }

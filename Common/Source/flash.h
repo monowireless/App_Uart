@@ -53,4 +53,7 @@ bool_t bFlash_Read(tsFlash *psFlash, uint8 sector, uint32 offset);
 bool_t bFlash_Write(tsFlash *psFlash, uint8 sector, uint32 offset);
 bool_t bFlash_Erase(uint8 sector);
 
+bool_t bFlash_DataRecalcHeader(tsFlash *psFlash);
+bool_t bFlash_DataValidateHeader(tsFlash *psFlash);
+
 #endif /* FLASH_H_ */

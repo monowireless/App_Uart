@@ -22,6 +22,9 @@
 
 #include <jendefs.h>
 
+#define FLASH_APP_AES_KEY_SIZE 16
+#define FLASH_APP_HANDLE_NAME_LEN 23
+
 /** @ingroup FLASH
  * フラッシュ格納データ構造体
  */
@@ -42,10 +45,12 @@ typedef struct _tsFlashApp {
 
 	uint8 u8uart_mode;		//!< UART の動作モード (0:透過, 1:テキスト電文, 2:バイナリ電文)
 
-	uint8 au8ChatHandleName[32]; //!< チャットモードのハンドル名
+	uint8 u8uart_lnsep;		//!< UART の行セパレータ (透過モードでの伝送時)
+
+	uint8 au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN + 1]; //!< チャットモードのハンドル名
 
 	uint8 u8Crypt;          //!< 暗号化を有効化するかどうか (1:AES128)
-	uint8 au8AesKey[33];    //!< AES の鍵
+	uint8 au8AesKey[FLASH_APP_AES_KEY_SIZE + 1];    //!< AES の鍵
 
 	uint32 u32Opt;			//!< その他オプション
 } tsFlashApp;

@@ -32,7 +32,21 @@
  * @return
  */
 uint16 SERIAL_u16RxQueueCount(uint8 u8port);
+
+/**
+ * シリアルポートのバッファ数を取得する
+ * @param u8port
+ * @return
+ */
 uint16 SERIAL_u16TxQueueCount(uint8 u8port);
+
+/**
+ * UART0,1 両方にバイトを出力する
+ * @param u8SerialPort 値は反映されない
+ * @param u8Chr 出力したいバイト
+ * @return TRUEのみ
+ */
+bool_t   SERIAL_bTxCharDuo(uint8 u8SerialPort, uint8 u8Chr);
 
 /*
  * IOポートの定義
@@ -136,7 +150,7 @@ extern const uint8 au8PortTbl_DIn[4]; //!< IO番号(入力)のテーブル
 typedef enum {
 	E_IO_MODE_CHILD = 0,          //!< E_IO_MODE_CHILD
 	E_IO_MODE_PARNET,             //!< E_IO_MODE_PARNET
-	E_IO_MODE_REPEAT_CHILD,       //!<
+	E_IO_MODE_REPEAT_CHILD,       //!< E_IO_MODE_REPEAT_CHILD
 	E_IO_MODE_REPEATER,           //!< E_IO_MODE_REPEATER
 } tePortConf2Mode;
 extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論理アドレスへの変換
@@ -155,7 +169,7 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 /*
  * シリアルコマンドの定義
  */
-#define APP_PROTOCOL_VERSION 0x11 //!< プロトコルバージョン
+#define APP_PROTOCOL_VERSION 0x12 //!< プロトコルバージョン,5bit (0x11 ～ v102, 0x12: v110～)
 
 #define SERCMD_ADDR_TO_MODULE 0xDB //!< Device -> 無線モジュール
 #define SERCMD_ADDR_TO_PARENT 0x00 //!< Device
@@ -179,9 +193,13 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define SERCMD_ID_GET_MODULE_SETTING 0xF3
 #define SERCMD_ID_CLEAR_SAVE_CONTENT 0xF4
 
+
 #define SERCMD_ID_DO_FACTORY_DEFAULT 0xFD
 #define SERCMD_ID_SAVE_AND_RESET 0xFE
 #define SERCMD_ID_RESET 0xFF
+
+#define SERCMD_ID_MODULE_CONTROL 0xF8
+#define SERCMD_ID_MODULE_CONTROL_RELEASE_SILENT 0x10
 
 /**
  * 拡張パケット送信
@@ -303,5 +321,25 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define DBGOUT(lv, ...) //!< デバッグ出力
 #endif
 
+/*
+ * ビルド時の sizeof() チェックを行うマクロ
+ *   BUILD_BUG_ON(sizeof(myStruct)>100);
+ *   と書いておいて、これが成立するとコンパイル時エラーになる
+ */
+#define BUILD_BUG_ON(cond) ((void)sizeof(char[1-2*!!(cond)]))
+
+/*
+ * XMODEM 設定データ出力機能
+ */
+#define ASC_SOH 0x01
+#define ASC_EOT 0x04
+#define ASC_ACK 0x06
+#define ASC_CR  0x0D
+#define ASC_LF  0x0A
+#define ASC_NAK 0x15
+#define ASC_SUB 0x1A
+#define ASC_CTRL_Z ASC_SUB
+#define ASC_ESC 0x1B
+#define XMODEM_BLOCK_SIZE 128
 
 #endif /* COMMON_H_ */

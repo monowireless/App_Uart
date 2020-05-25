@@ -27,6 +27,7 @@
 #include "common.h"
 #include "config.h"
 
+#include "Interactive.h"
 
 // Serial options
 #include <serial.h>
@@ -86,6 +87,8 @@ void vSerResp_GetModuleSetting(uint32 u32setting) {
 				*q++ = *p++;
 			}
 		} break;
+	case E_APPCONF_UART_LINE_SEP:
+			S_OCTET(FL_IS_MODIFIED_u8(uart_lnsep) ? FL_UNSAVE_u8(uart_lnsep) : FL_MASTER_u8(uart_lnsep)); break;
 	case E_APPCONF_OPT_BITS:
 			S_BE_DWORD(FL_IS_MODIFIED_u32(Opt) ? FL_UNSAVE_u32(Opt) : FL_MASTER_u32(Opt)); break;
 	default:
@@ -168,6 +171,10 @@ bool_t bSerCmd_SetModuleSetting(uint8 *p, uint8 u8len) {
 			}
 			bRet = TRUE;
 		}
+		break;
+
+	case E_APPCONF_UART_LINE_SEP:
+		if (u8len >= 1) FL_UNSAVE_u8(uart_lnsep)= G_OCTET(); else bRet = FALSE;
 		break;
 
 	default:

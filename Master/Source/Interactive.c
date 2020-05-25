@@ -43,24 +43,49 @@ extern uint16 u16HoldUpdateScreen;
  * @param p 構造体へのアドレス
  */
 void vConfig_SetDefaults(tsFlashApp *p) {
-	p->u32appid = APP_ID;
-	p->u32chmask = CHMASK;
-	p->u8ch = CHANNEL;
-	p->u16power = 3;
-	p->u8id = 0x00;
-	p->u8role = E_APPCONF_ROLE_MAC_NODE;
-	p->u8layer = 1;
+	tsFlash *pFlashCustom = NULL;
+#ifdef JN516x
+	uint32 u32addr = *(uint32*)(0x80020);
 
-	p->u32baud_safe = UART_BAUD_SAFE;
-	p->u8parity = 0; // none
+	if (u32addr <= (32*1024*5 - 1024)) { // 159KB 以上の場合はスキップ
+		// 実際のアドレスは 0x80000 から始まる
+		pFlashCustom = (tsFlash *)(u32addr + 0x80000);
 
-	p->u8uart_mode = UART_MODE_DEFAULT; // chat
+		if (!bFlash_DataValidateHeader(pFlashCustom)) {
+			pFlashCustom = NULL;
+		}
+	}
 
-	p->au8AesKey[0] = 0x00;
-	p->au8ChatHandleName[0] = 0x00;
+#endif
 
-	p->u8Crypt = 0;
-	p->u32Opt = 0;
+	if (pFlashCustom) {
+		// ファームウェアからのデータロードが出来ました
+		*p = pFlashCustom->sData;
+		sAppData.bCustomDefaults = TRUE;
+	} else {
+		// コンパイルデフォルト
+		p->u32appid = APP_ID;
+		p->u32chmask = CHMASK;
+		p->u8ch = CHANNEL;
+		p->u16power = 3;
+		p->u8id = 0x00;
+		p->u8role = E_APPCONF_ROLE_MAC_NODE;
+		p->u8layer = 1;
+
+		p->u32baud_safe = UART_BAUD_SAFE;
+		p->u8parity = 0; // none
+
+		p->u8uart_mode = UART_MODE_DEFAULT; // chat
+		p->u8uart_lnsep = 0x0D; // 行セパレータ
+
+		memset(p->au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
+		memset(p->au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
+
+		p->u8Crypt = 0;
+		p->u32Opt = DEFAULT_OPT_BITS;
+
+		sAppData.bCustomDefaults = FALSE;
+	}
 }
 
 /** @ingroup FLASH
@@ -72,77 +97,126 @@ void vConfig_UnSetAll(tsFlashApp *p) {
 }
 
 /** @ingroup FLASH
+ * フラッシュ設定構造体を全て未設定状態に巻き戻す。
+ * @param p 構造体へのアドレス
+ */
+void vConfig_OutputXmodem(tsFlash *pFlash) {
+	int nData = sizeof(tsFlash);
+
+	// sizeof(tsFlash)のサイズチェック(サイズが超過するとコンパイル時エラーになる)
+	// 末尾バイトを 0x00 にしたいため (Ctrl+Z だと切り詰められるため) １バイト余裕を持たせる
+	BUILD_BUG_ON(sizeof(tsFlash) > XMODEM_BLOCK_SIZE - 1);
+
+	// --> SOH
+	V_PUTCHAR(ASC_SOH);
+
+	// --> ブロック番号 (0x01)
+	V_PUTCHAR(0x01);
+
+	// --> ブロック番号反転 (0xfe)
+	V_PUTCHAR(0xfe);
+
+	// --> データ(128バイト)
+	int i;
+	uint8 *p = (uint8 *)pFlash;
+	uint8 u8sum = 0, c;
+	for (i = 0; i < XMODEM_BLOCK_SIZE; i++) {
+		if (i < nData) {
+			c = p[i];
+		} else if (i == nData) {
+			c = 0x00; // 末尾は 0x00 とする
+		} else {
+			c = ASC_CTRL_Z; // 残りは CTRL+Z
+		}
+
+		u8sum += c;
+		V_PUTCHAR(c);
+	}
+
+	// --> チェックサム
+	V_PUTCHAR(u8sum);
+
+	// この後 <-- ACK, --> EOT と続くが、vProcessInputByte() で処理する
+}
+
+/** @ingroup FLASH
+ * UnSaved データを sFlash.sData にシンクロする
+ */
+static void vConfig_SyncUnsaved(tsFlash *pFlash, tsFlashApp *pAppData) {
+	if (pAppData->u32appid != 0xFFFFFFFF) {
+		pFlash->sData.u32appid = pAppData->u32appid;
+	}
+	if (pAppData->u32chmask != 0xFFFFFFFF) {
+		pFlash->sData.u32chmask = pAppData->u32chmask;
+	}
+	if (pAppData->u8id != 0xFF) {
+		pFlash->sData.u8id = pAppData->u8id;
+	}
+	if (pAppData->u8ch != 0xFF) {
+		pFlash->sData.u8ch = pAppData->u8ch;
+	}
+	if (pAppData->u16power != 0xFFFF) {
+		pFlash->sData.u16power = pAppData->u16power;
+	}
+	if (pAppData->u8layer != 0xFF) {
+		pFlash->sData.u8layer = pAppData->u8layer;
+	}
+	if (pAppData->u8role != 0xFF) {
+		pFlash->sData.u8role = pAppData->u8role;
+	}
+	if (pAppData->u32baud_safe != 0xFFFFFFFF) {
+		pFlash->sData.u32baud_safe = pAppData->u32baud_safe;
+	}
+	if (pAppData->u8parity != 0xFF) {
+		pFlash->sData.u8parity = pAppData->u8parity;
+	}
+	if (pAppData->u8uart_mode != 0xFF) {
+		pFlash->sData.u8uart_mode = pAppData->u8uart_mode;
+	}
+	if (pAppData->u8uart_lnsep != 0xFF) {
+		pFlash->sData.u8uart_lnsep = pAppData->u8uart_lnsep;
+	}
+
+	{
+		if (pAppData->au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] != 0xFF) {
+			memcpy(pFlash->sData.au8ChatHandleName,
+				pAppData->au8ChatHandleName,
+				FLASH_APP_HANDLE_NAME_LEN);
+
+			pFlash->sData.au8AesKey[FLASH_APP_HANDLE_NAME_LEN] = 0;
+		}
+	}
+
+	if (pAppData->u8Crypt != 0xFF) {
+		pFlash->sData.u8Crypt = pAppData->u8Crypt;
+	}
+
+	{
+		// 17バイト目が 0xFF なら設定済み
+		if (pAppData->au8AesKey[FLASH_APP_AES_KEY_SIZE] != 0xFF) {
+			memcpy(pFlash->sData.au8AesKey,
+					pAppData->au8AesKey,
+					FLASH_APP_AES_KEY_SIZE);
+			pFlash->sData.au8AesKey[FLASH_APP_AES_KEY_SIZE] = 0;
+		}
+	}
+
+	if (pAppData->u32Opt != 0xFFFFFFFF) {
+		pFlash->sData.u32Opt = pAppData->u32Opt;
+	}
+
+	// アプリケーション情報の記録
+	pFlash->sData.u32appkey = APP_ID;
+	pFlash->sData.u32ver = ((VERSION_MAIN << 16) | (VERSION_SUB << 8) | (VERSION_VAR));
+}
+
+/** @ingroup FLASH
  * フラッシュまたはEEPROMへの保存とリセットを行う。
  */
 void vConfig_SaveAndReset() {
 	tsFlash sFlash = sAppData.sFlash;
 
-	if (sAppData.sConfig_UnSaved.u32appid != 0xFFFFFFFF) {
-		sFlash.sData.u32appid = sAppData.sConfig_UnSaved.u32appid;
-	}
-	if (sAppData.sConfig_UnSaved.u32chmask != 0xFFFFFFFF) {
-		sFlash.sData.u32chmask = sAppData.sConfig_UnSaved.u32chmask;
-	}
-	if (sAppData.sConfig_UnSaved.u8id != 0xFF) {
-		sFlash.sData.u8id = sAppData.sConfig_UnSaved.u8id;
-	}
-	if (sAppData.sConfig_UnSaved.u8ch != 0xFF) {
-		sFlash.sData.u8ch = sAppData.sConfig_UnSaved.u8ch;
-	}
-	if (sAppData.sConfig_UnSaved.u16power != 0xFFFF) {
-		sFlash.sData.u16power = sAppData.sConfig_UnSaved.u16power;
-	}
-	if (sAppData.sConfig_UnSaved.u8layer != 0xFF) {
-		sFlash.sData.u8layer = sAppData.sConfig_UnSaved.u8layer;
-	}
-	if (sAppData.sConfig_UnSaved.u8role != 0xFF) {
-		sFlash.sData.u8role = sAppData.sConfig_UnSaved.u8role;
-	}
-	if (sAppData.sConfig_UnSaved.u32baud_safe != 0xFFFFFFFF) {
-		sFlash.sData.u32baud_safe = sAppData.sConfig_UnSaved.u32baud_safe;
-	}
-	if (sAppData.sConfig_UnSaved.u8parity != 0xFF) {
-		sFlash.sData.u8parity = sAppData.sConfig_UnSaved.u8parity;
-	}
-	if (sAppData.sConfig_UnSaved.u8uart_mode != 0xFF) {
-		sFlash.sData.u8uart_mode = sAppData.sConfig_UnSaved.u8uart_mode;
-	}
-
-	{
-		int i;
-		for (i = 0; i < sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName); i++) {
-			if (sAppData.sConfig_UnSaved.au8ChatHandleName[i] != 0xFF) break;
-		}
-		if (i != sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName)) {
-			memcpy(sFlash.sData.au8ChatHandleName,
-					sAppData.sConfig_UnSaved.au8ChatHandleName,
-					sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName));
-		}
-	}
-
-	if (sAppData.sConfig_UnSaved.u8Crypt != 0xFF) {
-		sFlash.sData.u8Crypt = sAppData.sConfig_UnSaved.u8Crypt;
-	}
-
-	{
-		int i;
-		for (i = 0; i < sizeof(sAppData.sConfig_UnSaved.au8AesKey); i++) {
-			if (sAppData.sConfig_UnSaved.au8AesKey[i] != 0xFF) break;
-		}
-		if (i != sizeof(sAppData.sConfig_UnSaved.au8AesKey)) {
-			memcpy(sFlash.sData.au8AesKey,
-					sAppData.sConfig_UnSaved.au8AesKey,
-					sizeof(sAppData.sConfig_UnSaved.au8AesKey));
-		}
-	}
-
-	if (sAppData.sConfig_UnSaved.u32Opt != 0xFFFFFFFF) {
-		sFlash.sData.u32Opt = sAppData.sConfig_UnSaved.u32Opt;
-	}
-
-	// アプリケーション情報の記録
-	sFlash.sData.u32appkey = APP_ID;
-	sFlash.sData.u32ver = ((VERSION_MAIN << 16) | (VERSION_SUB << 8) | (VERSION_VAR));
+	vConfig_SyncUnsaved(&sFlash, &sAppData.sConfig_UnSaved);
 
 	bool_t bRet = bFlash_Write(&sFlash, FLASH_SECTOR_NUMBER - 1, 0);
 	V_PRINT("!INF Write config %s"LB, bRet ? "Success" : "Failed");
@@ -194,14 +268,18 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case 'x': // チャネルの設定
 #ifdef JN514x
-		V_PRINT("Input Rf Power & Kbps"
+		V_PRINT("Rf Power & Kbps"
 				LB " X0YZ X=Kbps(0:250,1:500,2:667)"
 				LB "      Y=Retry(0:default,F:0,1-9:count"
-				LB "      Z=Power(3:Max,2,1,0:Min): ");
+				LB "      Z=Power(3:Max,2,1,0:Min)"
+				LB "Input: "
+				);
 #elif defined(JN516x)
-		V_PRINT("Input Rf Power & Kbps"
+		V_PRINT("Rf Power & Kbps"
 				LB "   YZ Y=Retry(0:default,F:0,1-9:count"
-				LB "      Z=Power(3:Max,2,1,0:Min): ");
+				LB "      Z=Power(3:Max,2,1,0:Min)"
+				LB "Input: "
+		);
 #endif
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 4, E_APPCONF_POWER);
 		break;
@@ -222,23 +300,35 @@ void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 'b': // ボーレートの変更
-		V_PRINT("Input UART baud (DEC:9600-230400): ");
+		V_PRINT("UART baud" LB "  !NOTE: only effective when BPS=Lo" LB);
+		V_PRINT("Input (DEC:9600-230400): ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 10, E_APPCONF_BAUD_SAFE);
 		break;
 
 	case 'B': // パリティの変更
-		V_PRINT("Input UART option (e.g. 8N1): ");
+		V_PRINT("UART options" LB "  !NOTE: only effective when BPS=Lo" LB);
+		V_PRINT("Input (e.g. 8N1): ");
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 3, E_APPCONF_BAUD_PARITY);
 		break;
 
-	case 'm': // パリティの変更
-		V_PRINT("Input UART mode (A,B,C,T): ");
+	case 'm': // モードの変更
+		V_PRINT("UART mode"LB);
+		V_PRINT("  A: ASCII, B: Binary formatted"LB);
+		V_PRINT("  C: Chat (TXonCR), D: Chat (TXonPAUSE, no prompt)"LB);
+		V_PRINT("  T: Transparent"LB);
+		V_PRINT("Input: ");
+
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 1, E_APPCONF_UART_MODE);
 		break;
 
+	case 'k':
+		V_PRINT("Input Line Separator (Transparant mode): ");
+		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_HEX, 2, E_APPCONF_UART_LINE_SEP);
+		break;
+
 	case 'h':
-		V_PRINT("Input handle name: ");
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 32, E_APPCONF_HANDLE_NAME);
+		V_PRINT("Input Handle Name (Chat mode): ");
+		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, FLASH_APP_HANDLE_NAME_LEN, E_APPCONF_HANDLE_NAME);
 		break;
 
 	case 'C':
@@ -248,7 +338,7 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case 'K':
 		V_PRINT("Input crypt key: ");
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 32, E_APPCONF_CRYPT_KEY);
+		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, FLASH_APP_AES_KEY_SIZE, E_APPCONF_CRYPT_KEY);
 		break;
 
 	case 'o':
@@ -336,6 +426,27 @@ void vProcessInputByte(uint8 u8Byte) {
 		}
 		break;
 
+	case ASC_NAK: // XMODEM プロトコル NAK 処理
+		_C {
+			// XMODEM の開始（または、ブロックの再送要求）
+			tsFlash sFlash = sAppData.sFlash;
+			vConfig_SyncUnsaved(&sFlash, &sAppData.sConfig_UnSaved);
+			bFlash_DataRecalcHeader(&sFlash);
+			vConfig_OutputXmodem(&sFlash);
+		}
+		break;
+
+	case ASC_ACK: // XMODEM プロトコル ACK 処理
+		_C {
+			// ブロックが残っていれば次のブロック転送を開始する。
+			// 全ブロック転送すれば転送完了
+			// (今回の実装では１ブロックのみの転送なので、EOTのみを送る)
+
+			// XMODEM転送終了
+			V_PUTCHAR(ASC_EOT);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -365,7 +476,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 				sAppData.sConfig_UnSaved.u32appid = u32val;
 			}
 
-			V_PRINT(LB"-> %08X"LB, u32val);
+			V_PRINT(LB"-> 0x%08X"LB, u32val);
 		}
 		break;
 
@@ -398,7 +509,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 							if (n_ch) {
 								V_PUTCHAR(',');
 							}
-							V_PRINT("%x", u8ch);
+							V_PRINT("%d", u8ch);
 							u32chmask |= (1UL << u8ch);
 
 							n_ch++;
@@ -436,7 +547,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 
 			if (u8Bps <= 2 && u8Pow <= 3) {
 				sAppData.sConfig_UnSaved.u16power = u32val & 0xFFFF;
-				V_PRINT("%x"LB, u32val);
+				V_PRINT("0x%x"LB, u32val);
 			} else {
 				V_PRINT("(ignored)"LB);
 			}
@@ -460,17 +571,9 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 		_C {
 			uint32 u32val = u32string2hex(pu8str, u8idx);
 			V_PRINT(LB"-> ");
-			if (u32val == E_APPCONF_ROLE_MAC_NODE
-				|| u32val == E_APPCONF_ROLE_MAC_NODE_REPEATER
-				|| u32val == E_APPCONF_ROLE_PARENT
-				|| u32val == E_APPCONF_ROLE_ROUTER
-				|| u32val == E_APPCONF_ROLE_ENDDEVICE
-			) {
-				sAppData.sConfig_UnSaved.u8role = u32val; // ０は未設定！
-				V_PRINT("(0x%02x)"LB, u32val, u32val);
-			} else {
-				V_PRINT("(ignored)"LB);
-			}
+
+			sAppData.sConfig_UnSaved.u8role = u32val; // ０は未設定！
+			V_PRINT("(0x%02x)"LB, u32val, u32val);
 		}
 		break;
 
@@ -502,7 +605,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			if (u32val) {
 				sAppData.sConfig_UnSaved.u32baud_safe = u32val;
 				if (u32val & 0x80000000) {
-					V_PRINT("%x"LB, u32val);
+					V_PRINT("0x%x"LB, u32val);
 				} else {
 					V_PRINT("%d"LB, u32val);
 				}
@@ -575,6 +678,15 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 		}
 		break;
 
+	case E_APPCONF_UART_LINE_SEP:
+		_C {
+			uint32 u32val = u32string2hex(pu8str, u8idx);
+			V_PRINT(LB"-> ");
+			sAppData.sConfig_UnSaved.u8uart_lnsep = u32val;
+			V_PRINT("0x%02x"LB, u32val);
+		}
+		break;
+
 	case E_APPCONF_CRYPT_MODE:
 		_C {
 			if (pu8str[0] == '0') {
@@ -594,11 +706,11 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			uint8 u8len = strlen((void*)pu8str);
 
 			if (u8len == 0) {
-				memset(sAppData.sConfig_UnSaved.au8AesKey, 0, sizeof(sAppData.sConfig_UnSaved.au8AesKey));
+				memset(sAppData.sConfig_UnSaved.au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
 				V_PRINT(LB"(cleared)");
 			} else
-			if (u8len && u8len <= 32) {
-				memset(sAppData.sConfig_UnSaved.au8AesKey, 0, sizeof(sAppData.sConfig_UnSaved.au8AesKey));
+			if (u8len && u8len <= FLASH_APP_AES_KEY_SIZE) {
+				memset(sAppData.sConfig_UnSaved.au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
 				memcpy(sAppData.sConfig_UnSaved.au8AesKey, pu8str, u8len);
 				V_PRINT(LB);
 			} else {
@@ -612,11 +724,11 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			uint8 u8len = strlen((void*)pu8str);
 
 			if (u8len == 0) {
-				memset(sAppData.sConfig_UnSaved.au8ChatHandleName, 0, sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName));
+				memset(sAppData.sConfig_UnSaved.au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
 				V_PRINT(LB"(cleared)");
 			} else
-			if (u8len && u8len < sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName)) {
-				memset(sAppData.sConfig_UnSaved.au8ChatHandleName, 0, sizeof(sAppData.sConfig_UnSaved.au8ChatHandleName));
+			if (u8len && u8len <= FLASH_APP_HANDLE_NAME_LEN) {
+				memset(sAppData.sConfig_UnSaved.au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
 				memcpy(sAppData.sConfig_UnSaved.au8ChatHandleName, pu8str, u8len);
 				V_PRINT(LB);
 			} else {
@@ -646,9 +758,13 @@ void vProcessInputString(tsInpStr_Context *pContext) {
  * インタラクティブモードの画面を再描画する。
  */
 void vSerUpdateScreen() {
-	V_PRINT("%c[2J%c[H", 27, 27); // CLEAR SCREEN
-	V_PRINT("--- CONFIG/TWE UART APP V%d-%02d-%d/SID=0x%08x/LID=0x%02x ---"LB,
-			VERSION_MAIN, VERSION_SUB, VERSION_VAR, ToCoNet_u32GetSerial(), sAppData.u8AppLogicalId);
+	V_PRINT("\e[2J\e[H"); // CLEAR SCREEN
+	V_PRINT("--- CONFIG/TWE UART APP V%d-%02d-%d/SID=0x%08x/LID=0x%02x %s---"LB,
+			VERSION_MAIN, VERSION_SUB, VERSION_VAR,
+			ToCoNet_u32GetSerial(),
+			sAppData.u8AppLogicalId,
+			sAppData.bCustomDefaults ? "C " : ""
+	);
 
 	// Application ID
 	V_PRINT(" a: set Application ID (0x%08x)%c" LB,
@@ -727,31 +843,41 @@ void vSerUpdateScreen() {
 					FL_IS_MODIFIED_u8(parity) ? '*' : ' ');
 	}
 
+	uint8 u8mode_uart;
 	{
 		const uint8 au8name[] = { 'T', 'A', 'B', 'C', 'D' };
+		u8mode_uart = FL_IS_MODIFIED_u8(uart_mode) ? FL_UNSAVE_u8(uart_mode) : FL_MASTER_u8(uart_mode);
 		V_PRINT(" m: set UART mode (%c)%c" LB,
-					au8name[FL_IS_MODIFIED_u8(uart_mode) ? FL_UNSAVE_u8(uart_mode) : FL_MASTER_u8(uart_mode)],
+					au8name[u8mode_uart],
 					FL_IS_MODIFIED_u8(uart_mode) ? '*' : ' ');
+	}
+
+	if (u8mode_uart == UART_MODE_TRANSPARENT || u8mode_uart == UART_MODE_CHAT_NO_PROMPT) {
+		V_PRINT(" k: set Tx Trigger Char (0x%02x)%c" LB,
+				FL_IS_MODIFIED_u8(uart_lnsep) ? FL_UNSAVE_u8(uart_lnsep) : FL_MASTER_u8(uart_lnsep),
+				FL_IS_MODIFIED_u8(uart_lnsep) ? '*' : ' ');
 	}
 
 	{
 		V_PRINT(" h: set handle name [%s]%c" LB,
-			sAppData.sConfig_UnSaved.au8ChatHandleName[0] == 0xFF ?
+			sAppData.sConfig_UnSaved.au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] == 0xFF ?
 				sAppData.sFlash.sData.au8ChatHandleName : sAppData.sConfig_UnSaved.au8ChatHandleName,
-			sAppData.sConfig_UnSaved.au8ChatHandleName[0] == 0xFF ? ' ' : '*');
+			sAppData.sConfig_UnSaved.au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] == 0xFF ? ' ' : '*');
 	}
 
+	uint8 u8mode_crypt;
 	{
+		u8mode_crypt = FL_IS_MODIFIED_u8(Crypt) ? FL_UNSAVE_u8(Crypt) : FL_MASTER_u8(Crypt);
 		V_PRINT(" C: set crypt mode (%d)%c" LB,
-					FL_IS_MODIFIED_u8(Crypt) ? FL_UNSAVE_u8(Crypt) : FL_MASTER_u8(Crypt),
+					u8mode_crypt,
 					FL_IS_MODIFIED_u8(Crypt) ? '*' : ' ');
 	}
 
-	{
+	if (u8mode_crypt) {
 		V_PRINT(" K: set crypt key [%s]%c" LB,
-			sAppData.sConfig_UnSaved.au8AesKey[0] == 0xFF ?
+			sAppData.sConfig_UnSaved.au8AesKey[FLASH_APP_AES_KEY_SIZE] == 0xFF ?
 				sAppData.sFlash.sData.au8AesKey : sAppData.sConfig_UnSaved.au8AesKey,
-			sAppData.sConfig_UnSaved.au8AesKey[0] == 0xFF ? ' ' : '*');
+			sAppData.sConfig_UnSaved.au8AesKey[FLASH_APP_AES_KEY_SIZE] == 0xFF ? ' ' : '*');
 	}
 
 	V_PRINT(" o: set option bits (0x%08x)%c" LB,
