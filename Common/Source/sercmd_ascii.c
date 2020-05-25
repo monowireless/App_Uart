@@ -121,7 +121,8 @@ uint8 SerCmdAscii_u8Parse(tsSerCmd_Context *pCmd, uint8 u8byte) {
 
 			pCmd->u16pos++;
 		} else if (u8byte == 0x0d || u8byte == 0x0a) { // CR入力
-			if (pCmd->u16pos) {
+			if (pCmd->u16pos >= 4 && ((pCmd->u16pos & 1) == 0) // データ部１バイト、チェックサム１バイト以上
+			) {
 				// チェックサムの確認
 				pCmd->u16cksum &= 0xFF; // チェックサムを 8bit に切り捨てる
 				if (pCmd->u16cksum) { // 正しければ 0 になっているはず
@@ -140,7 +141,7 @@ uint8 SerCmdAscii_u8Parse(tsSerCmd_Context *pCmd, uint8 u8byte) {
 			}
 		} else if (u8byte == 'X') {
 			// X で終端したらチェックサムの計算を省く
-			if (pCmd->u16pos) {
+			if (pCmd->u16pos >= 2 && ((pCmd->u16pos & 1) == 0)) { // 入力データあり
 				pCmd->u8state = E_SERCMD_ASCII_CMD_COMPLETE; // 完了！
 				pCmd->u16len = pCmd->u16pos / 2;
 			}
@@ -148,29 +149,6 @@ uint8 SerCmdAscii_u8Parse(tsSerCmd_Context *pCmd, uint8 u8byte) {
 			pCmd->u8state = E_SERCMD_ASCII_CMD_EMPTY;
 		}
 		break;
-
-#if 0
-	case E_SERCMD_ASCII_CMD_READLF:
-		if (u8byte == 0x0a) {
-			pCmd->u16cksum &= 0xFF; // チェックサムを 8bit に切り捨てる
-
-			// エラーチェック
-			if (pCmd->u16cksum) {
-				// 格納値
-				uint8 u8lrc = pCmd->au8data[pCmd->u16pos / 2 - 1]; // u16posは最後のデータの次の位置
-				// 計算値(二の補数の計算、ビット反転+1), デバッグ用に入力系列に対応する正しいLRCを格納しておく
-				pCmd->u16cksum = (~(pCmd->u16cksum - u8lrc) + 1) & 0xFF;
-				pCmd->u8state = E_SERCMD_ASCII_CMD_CHECKSUM_ERROR;
-			} else {
-				// LRCが正しければ、全部足したら 0 になる。
-				pCmd->u8state = E_SERCMD_ASCII_CMD_COMPLETE; // 完了！
-				pCmd->u16len = pCmd->u16pos / 2 - 1;
-			}
-		} else {
-			pCmd->u8state = E_SERCMD_ASCII_CMD_ERROR;
-		}
-		break;
-#endif
 
 	default:
 		break;

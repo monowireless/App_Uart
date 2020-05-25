@@ -183,9 +183,9 @@ void vConfig_SetDefaults(tsFlashApp *p) {
 		p->u8parity = 0; // none
 
 		p->u8uart_mode = UART_MODE_DEFAULT; // chat
-		p->u16uart_lnsep = 0x0D; // 行セパレータ
 
-		p->u8uart_lnsep_minpkt = 1; // 最小パケットサイズ
+		p->u16uart_lnsep = 0x0D; // 行セパレータ
+		p->u8uart_lnsep_minpkt = 0; // 最小パケットサイズ
 		p->u8uart_txtrig_delay = 100; // 待ち時間による送信トリガー
 
 		memset(p->au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
@@ -372,14 +372,14 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case 'x': // チャネルの設定
 #ifdef JN514x
-		V_PRINT("Rf Power & Kbps"
+		V_PRINT("Rf Power/Retry/Kbps"
 				LB " X0YZ X=Kbps(0:250,1:500,2:667)"
 				LB "      Y=Retry(0:default,F:0,1-9:count"
 				LB "      Z=Power(3:Max,2,1,0:Min)"
 				LB "Input: "
 				);
 #elif defined(JN516x)
-		V_PRINT("Rf Power & Kbps"
+		V_PRINT("Rf Power/Retry"
 				LB "   YZ Y=Retry(0:default,F:0,1-9:count"
 				LB "      Z=Power(3:Max,2,1,0:Min)"
 				LB "Input: "
@@ -427,7 +427,7 @@ void vProcessInputByte(uint8 u8Byte) {
 
 	case 'k':
 		V_PRINT("Tx Triggger in Transparent,Chat no prompt mode"LB);
-		V_PRINT("  {delim(HEX)},{minumum size(1-80)},{time out[ms](10-200)}"LB);
+		V_PRINT("  {delim(HEX)},{min bytes(1-80),0:off},{time out[ms](10-200)}"LB);
 		V_PRINT("  e.g. 20,8,100 (space, 8bytes incl delim, 100ms)"LB);
 		V_PRINT("Input: ");
 
@@ -807,7 +807,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 						}
 					} else if (i == 1) { // 最小パケットサイズ(DELIM 含む)
 						u32val = u32string2dec(p_tokens[i], l);
-						if (u32val && u32val <= SERCMD_SER_PKTLEN_MINIMUM) {
+						if (u32val <= SERCMD_SER_PKTLEN_MINIMUM) {
 							sAppData.sConfig_UnSaved.u8uart_lnsep_minpkt = u32val;
 							V_PRINT("%d,", u32val);
 						} else {

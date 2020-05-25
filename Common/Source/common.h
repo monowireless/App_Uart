@@ -109,8 +109,18 @@
 #define PORT_OUT_MASK ((1UL << PORT_OUT1) | (1UL << PORT_OUT2) | (1UL << PORT_OUT3) | (1UL << PORT_OUT4))
 #define PORT_INPUT_MASK ((1UL << PORT_INPUT1) | (1UL << PORT_INPUT2) | (1UL << PORT_INPUT3) | (1UL << PORT_INPUT4))
 
-#define PORT_UART_RX 7
+// UART ポートの割り当て
 #define PORT_UART_RTS 5
+#define PORT_UART_TX 6
+#define PORT_UART_RX 7
+
+#ifdef JN516x
+#define PORT_UART_TX_SUB 14
+#define PORT_UART_RX_SUB 15
+#else
+#define PORT_UART_TX_SUB 19
+#define PORT_UART_RX_SUB 20
+#endif
 
 #ifdef USE_DIO_SLEEP
 // スリープ起床のためのポート

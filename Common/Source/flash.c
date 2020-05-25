@@ -82,8 +82,8 @@ bool_t bFlash_Write(tsFlash *psFlash, uint8 sector, uint32 offset)
     bool_t bRet = FALSE;
     offset += (uint32)sector * FLASH_SECTOR_SIZE; // calculate the absolute address
 
-#ifdef USE_EEPROM
     bFlash_DataRecalcHeader(psFlash);
+#ifdef USE_EEPROM
 	if (EEP_6x_bWrite(0, sizeof(tsFlash), (uint8 *)psFlash)) {
 		bRet = TRUE;
 	}
