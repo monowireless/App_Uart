@@ -69,9 +69,6 @@ typedef struct {
 	// Wakeup
 	bool_t bWakeupByButton; //!< TRUE なら起床時に DI 割り込みにより起床した
 
-	// mode3 fps
-	uint8 u8FpsBitMask; //!< mode=3 連続送信時の秒間送信タイミングを判定するためのビットマスク (64fps のカウンタと AND を取って判定)
-
 	// Network mode
 	teNwkMode eNwkMode; //!< ネットワークモデル(未使用：将来のための拡張用)
 	uint8 u8AppLogicalId; //!< ネットワーク時の抽象アドレス 0:親機 1~:子機
@@ -89,6 +86,10 @@ typedef struct {
 
 	// config mode
 	uint8 u8Mode; //!< 動作モード(IO M1,M2,M3 から設定される)
+	uint8 u8ModeEx; //!< 拡張モード設定 (EX1, EX2)
+
+	// UART mode
+	uint8 u8uart_mode; //!< UART のモード
 
 	// button manager
 	tsBTM_Config sBTM_Config; //!< ボタン入力（連照により状態確定する）管理構造体
@@ -103,6 +104,32 @@ typedef struct {
 	uint8 u8UartReqNum; //!< UART 送信の要求番号を管理
 	uint8 u8UartSeqNext; //!< UART 送信中の SEQ# の次の値 (0..127でループする)
 } tsAppData;
+
+
+/**
+ * 分割パケットを管理する構造体
+ */
+typedef struct {
+	bool_t bPktStatus[SERCMD_SER_PKTNUM]; //!< パケットの受信フラグ（全部１になれば完了）
+	uint8 u8PktNum; //!< 分割パケット数
+	uint16 u16DataLen; //!< データ長
+
+	uint8 u8RespID; //!< 応答を返すためのID(外部から指定される値)
+	uint8 u8ReqNum; //!< 内部管理の送信ID
+	uint8 u8Seq; //!< パケットのシーケンス番号（先頭）
+
+	uint32 u32Tick; //!< タイムスタンプ
+
+	uint8 u8IdSender; //!< 送り元簡易アドレス
+	uint8 u8IdReceiver; //!< 宛先簡易アドレス
+	uint32 u32SrcAddr; //!< 送り元拡張アドレス
+	uint32 u32DstAddr; //!< 宛先拡張アドレス
+
+	bool_t bWaitComplete; //!< 終了フラグ
+	bool_t bSleepOnFinish; //!< 終了時にスリープする
+
+	bool_t bRelayPacket; //!< 中継パケットが含まれる？この場合再中継しない。
+} tsSerSeq;
 
 /****************************************************************************
  * モード情報
@@ -133,23 +160,20 @@ typedef struct {
  * フラッシュ設定内容の列挙体
  */
 enum {
-	E_APPCONF_APPID,     //!<
-	E_APPCONF_CHMASK,    //!<
-	E_APPCONF_POWER,    //!<
-	E_APPCONF_ID,        //!<
-	E_APPCONF_ROLE,      //!<
-	E_APPCONF_LAYER ,    //!<
-	E_APPCONF_SLEEP4,    //!<
-	E_APPCONF_SLEEP7,    //!<
-	E_APPCONF_FPS,       //!<
-	E_APPCONF_SYS_HZ,    //!<
-	E_APPCONF_BAUD_SAFE, //!<
-	E_APPCONF_BAUD_PARITY,
-	E_APPCONF_UART_MODE,
-	E_APPCONF_CRYPT_MODE,
-	E_APPCONF_CRYPT_KEY,
-	E_APPCONF_HANDLE_NAME,
-	E_APPCONF_TEST
+	E_APPCONF_APPID = 0,      //!< E_APPCONF_APPID
+	E_APPCONF_CHMASK = 1,     //!< E_APPCONF_CHMASK
+	E_APPCONF_POWER = 2,      //!< E_APPCONF_POWER
+	E_APPCONF_ID = 3,         //!< E_APPCONF_ID
+	E_APPCONF_ROLE = 4,       //!< E_APPCONF_ROLE
+	E_APPCONF_LAYER  = 5,     //!< E_APPCONF_LAYER
+	E_APPCONF_UART_MODE = 6,  //!< E_APPCONF_UART_MODE
+	E_APPCONF_BAUD_SAFE = 7,  //!< E_APPCONF_BAUD_SAFE
+	E_APPCONF_BAUD_PARITY = 8,//!< E_APPCONF_BAUD_PARITY
+	E_APPCONF_CRYPT_MODE = 9, //!< E_APPCONF_CRYPT_MODE
+	E_APPCONF_CRYPT_KEY = 10,  //!< E_APPCONF_CRYPT_KEY
+	E_APPCONF_HANDLE_NAME = 11,//!< E_APPCONF_HANDLE_NAME
+	E_APPCONF_OPT_BITS = 0x80,   //!< E_APPCONF_OPT_BITS
+	E_APPCONF_VOID            //!< E_APPCONF_TEST
 };
 
 /** @ingroup FLASH
@@ -179,9 +203,17 @@ enum {
 /** AES 利用のマクロ判定  @ingroup FLASH */
 #define IS_CRYPT_MODE() (sAppData.sFlash.sData.u8Crypt)
 
+/** コールバックID の設定 */
 #define CBID_MASK_BASE 0x3F
+/** コールバックID の設定 */
 #define CBID_MASK_SPLIT_PKTS 0x40
+/** コールバックID の設定 */
 #define CBID_MASK_SILENT 0x80
+
+/**  フラッシュ設定パリティ設定（マスク）  @ingroup FLASH */
+#define APPCONF_UART_CONF_PARITY_MASK 0x3
+#define APPCONF_UART_CONF_STOPBIT_MASK 0x4
+#define APPCONF_UART_CONF_WORDLEN_MASK 0x8
 
 #endif  /* MASTER_H_INCLUDED */
 

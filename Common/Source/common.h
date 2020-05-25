@@ -26,6 +26,14 @@
 #include "config.h"
 #include "flash.h"
 
+/**
+ * シリアルポートのバッファ数を取得する
+ * @param u8port
+ * @return
+ */
+uint16 SERIAL_u16RxQueueCount(uint8 u8port);
+uint16 SERIAL_u16TxQueueCount(uint8 u8port);
+
 /*
  * IOポートの定義
  */
@@ -45,6 +53,9 @@
 #define PORT_CONF3 3
 
 #define PORT_BAUD 17
+
+#define PORT_CONF_EX1 0
+#define PORT_CONF_EX2 1
 #elif defined(JN514x)
 
 #if defined(CONFIG_000_0) || defined(CONFIG_000_1)
@@ -106,10 +117,13 @@
 #define PORT_OUT_MASK ((1UL << PORT_OUT1) | (1UL << PORT_OUT2) | (1UL << PORT_OUT3) | (1UL << PORT_OUT4))
 #define PORT_INPUT_MASK ((1UL << PORT_INPUT1) | (1UL << PORT_INPUT2) | (1UL << PORT_INPUT3) | (1UL << PORT_INPUT4))
 
+#define PORT_UART_RX 7
+#define PORT_UART_RTS 5
+
 #ifdef USE_DIO_SLEEP
 // スリープ起床のためのポート
 #define PORT_SLEEP PORT_CONF3
-#define PORT_SLEEP_WAKE_MASK ((1UL << PORT_SLEEP) | (1UL << 7)) // スリープピンまたは UART0 RX
+#define PORT_SLEEP_WAKE_MASK ((1UL << PORT_SLEEP) | (1UL << PORT_UART_RX)) // スリープピンまたは UART0 RX
 #endif
 
 // マップテーブル
@@ -157,10 +171,17 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define SERCMD_ADDR_CONV_FR_SHORT_ADDR_PARENT_IN_PAIR(c) (c - 0x300 - 1) //!< 透過モードの親機のアドレス
 
 /**
- * ACK応答
+ * コマンド群
  */
 #define SERCMD_ID_ACK 0xF0
 #define SERCMD_ID_GET_MODULE_ADDRESS 0xF1
+#define SERCMD_ID_SET_MODULE_SETTING 0xF2
+#define SERCMD_ID_GET_MODULE_SETTING 0xF3
+#define SERCMD_ID_CLEAR_SAVE_CONTENT 0xF4
+
+#define SERCMD_ID_DO_FACTORY_DEFAULT 0xFD
+#define SERCMD_ID_SAVE_AND_RESET 0xFE
+#define SERCMD_ID_RESET 0xFF
 
 /**
  * 拡張パケット送信
@@ -246,6 +267,20 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #define TRANSMIT_EX_OPT_SET_PARALLEL_TRANSMIT 0x06
 
 /**
+ * 応答メッセージを出力しない
+ */
+#define TRANSMIT_EX_OPT_SET_NO_RESPONSE 0x07
+
+/**
+ * 送信後スリープする
+ *
+ * 但しスリープが実行されるのは以下の条件
+ * - PARALLEL TRANSMIT が有効になっていない事
+ * - 遅延によるタイムアウトが発生しない事
+ */
+#define TRANSMIT_EX_OPT_SET_SLEEP_AFTER_TRANSMIT 0x08
+
+/**
  *  オプション系列の終端子
  */
 #define TRANSMIT_EX_OPT_TERM 0xFF
@@ -267,5 +302,6 @@ extern const uint8 au8IoModeTbl_To_LogicalID[8]; //!< tePortConf2Mode から論�
 #else
 #define DBGOUT(lv, ...) //!< デバッグ出力
 #endif
+
 
 #endif /* COMMON_H_ */

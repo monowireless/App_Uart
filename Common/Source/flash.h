@@ -36,31 +36,7 @@
 #define FLASH_SECTOR_NUMBER 5 // 0..4
 #endif
 
-/** @ingroup FLASH
- * フラッシュ格納データ構造体
- */
-typedef struct _tsFlashApp {
-	uint32 u32appkey;		//!<
-	uint32 u32ver;			//!<
-
-	uint32 u32appid;		//!< アプリケーションID
-	uint32 u32chmask;		//!< 使用チャネルマスク（３つまで）
-	uint8 u8id;				//!< 論理ＩＤ (子機 1～100まで指定)
-	uint8 u8ch;				//!< チャネル（未使用、チャネルマスクに指定したチャネルから選ばれる）
-	uint8 u8power;			//!< 送信パワー
-	uint8 u8role;			//!< 未使用(将来のための拡張)
-	uint8 u8layer;			//!< 未使用(将来のための拡張)
-
-	uint32 u32baud_safe;	//!< ボーレート
-	uint8 u8parity;         //!< パリティ 0:none, 1:odd, 2:even
-
-	uint8 u8uart_mode;		//!< UART の動作モード (0:透過, 1:テキスト電文, 2:バイナリ電文)
-
-	uint8 au8ChatHandleName[32]; //!< チャットモードのハンドル名
-
-	uint8 u8Crypt;          //!< 暗号化を有効化するかどうか (1:AES128)
-	uint8 au8AesKey[33];    //!< AES の鍵
-} tsFlashApp;
+#include "appsave.h"
 
 /** @ingroup FLASH
  * フラッシュデータ構造体
@@ -75,5 +51,6 @@ typedef struct _tsFlash {
 
 bool_t bFlash_Read(tsFlash *psFlash, uint8 sector, uint32 offset);
 bool_t bFlash_Write(tsFlash *psFlash, uint8 sector, uint32 offset);
+bool_t bFlash_Erase(uint8 sector);
 
 #endif /* FLASH_H_ */

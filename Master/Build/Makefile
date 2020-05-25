@@ -45,6 +45,11 @@ include ../Version.mk
 #   ../Common/Source
 #
 APPSRC += $(TARGET_DIR).c
+
+APPSRC += cmd_config.c
+APPSRC += cmd_misc.c
+APPSRC += Interactive.c
+
 APPSRC += common.c
 APPSRC += flash.c
 APPSRC += sercmd_plus3.c
@@ -65,7 +70,7 @@ TARGET_TYPE=bin # for building final application
 # ToCoNet のスタックデバッグ出力を使用する場合 1 を指定します。
 # - ターゲットファイル名に _TDBG が追加されます。 
 #
-TOCONET_DEBUG ?= 0
+TOCONET_DEBUG ?= 1
 
 ##########################################################################
 ### Basic definitions (do not edit here)

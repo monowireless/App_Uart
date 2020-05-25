@@ -39,8 +39,17 @@ extern "C" {
 #define UART_PARITY_TYPE 	E_AHI_UART_EVEN_PARITY //!< E_AHI_UART_PARITY_ENABLE 時の指定
 #define UART_STOPBITS 		E_AHI_UART_1_STOP_BIT //!< ストップビットは１
 
+#define UART_BUFFER_RX      4096UL //!< 4KB バッファ(入力側)
+#define UART_BUFFER_TX      4096UL //!< 1KB バッファ(出力側)
+#define UART_BUFFER_RX_LIMIT_STOP (UART_BUFFER_RX * 7 / 8) //!< 受信不可(RTS=HI)開始条件
+#define UART_BUFFER_RX_LIMIT_START (UART_BUFFER_RX * 6 / 8) //!< 受信可(RTS=LO)開始条件 (ヒステリシスを設ける)
+
 /* Specify which serial port to use when outputting debug information */
 #define UART_PORT_MASTER    E_AHI_UART_0 //!< UARTポートの指定
+
+#if UART_PORT_MASTER != E_AHI_UART_0
+# warning "UART1 is used."
+#endif
 
 /* Specify the PAN ID and CHANNEL to be used by tags, readers and gateway */
 #define APP_ID              0x67720103 //!< アプリケーションID。同じIDでないと通信しない。
@@ -51,6 +60,7 @@ extern "C" {
 
 // SERIAL BUFFERS
 #define SERCMD_SER_PKTLEN 80 //!< シリアルメッセージのデータ部の最大バイト数
+#define SERCMD_SER_PKTLEN_MINIMUM (SERCMD_SER_PKTLEN - 2) //!< 確実に１パケットに格納できるサイズ
 #define SERCMD_SER_PKTNUM 8 //!< シリアルメッセージの最大送信パケット数
 #define SERCMD_MAXPAYLOAD (SERCMD_SER_PKTLEN*SERCMD_SER_PKTNUM) //!< シリアルメッセージのバッファサイズ
 
@@ -63,18 +73,21 @@ extern "C" {
 #define DEFAULT_TX_FFFF_DUR_ms 4 //!< 再送時の間隔
 #define DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms 20 //!< 中継時の遅延
 
-#undef NWK_LAYER
-#undef NWK_LAYER_FORCE
+#undef NWK_LAYER //!< ネットワーク層を利用する
+#undef NWK_LAYER_FORCE //!< デフォルトでネットワーク層を使用する
+
 #define USE_AES
 #define USE_DIO_SLEEP
 
 // 設定セット
-#undef CONFIG_000_1
+//#define CONFIG_000_0
+//#define CONFIG_002
 
 /* このセットでは、
  *   UART1, 38400bps 8N1 で動作させる
  */
 #ifdef CONFIG_000_1
+#warning "Custom configuration 000_1"
 #undef UART_BAUD
 #define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）
 #undef UART_BAUD_SAFE
@@ -83,62 +96,49 @@ extern "C" {
 #define UART_PORT_MASTER    E_AHI_UART_1 //!< UARTポートの指定
 #undef USE_MODE_PIN
 //#undef USE_BPS_PIN
-#undef MODE_DEFAULT
-#define MODE_DEFAULT 1 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#undef UART_MODE_DEFAULT
+#define UART_MODE_DEFAULT 1 //!< 0:Transparent, 1:Ascii format, 2:Binary
 #endif
 
 #ifdef CONFIG_000_0
+#warning "Custom configuration 000_0"
 #undef UART_BAUD
 #define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）
 #undef UART_BAUD_SAFE
 #define UART_BAUD_SAFE		9600UL //!< UART のボーレート（他の設定）
 #undef UART_PORT_MASTER
 #define UART_PORT_MASTER    E_AHI_UART_0 //!< UARTポートの指定
-#undef USE_MODE_PIN
+//#undef USE_MODE_PIN
 //#undef USE_BPS_PIN
-#undef MODE_DEFAULT
-#define MODE_DEFAULT 1 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#undef UART_MODE_DEFAULT
+#define UART_MODE_DEFAULT 2 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#define NWK_LAYER
 #endif
 
 #ifdef CONFIG_001
+#warning "Custom configuration 001"
 #undef UART_PORT_MASTER
 #define UART_PORT_MASTER    E_AHI_UART_0 //!< UARTポートの指定
 #undef USE_MODE_PIN
 #undef USE_BPS_PIN
-#undef MODE_DEFAULT
-#define MODE_DEFAULT 1 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#undef UART_MODE_DEFAULT
+#define UART_MODE_DEFAULT 1 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#endif
+
+#ifdef CONFIG_002
+#warning "Custom configuration 002
+#undef UART_BAUD
+#define UART_BAUD			38400UL //!< UART のボーレート（デフォルト）"
+#define USE_MODE_PIN
+#undef USE_BPS_PIN
+#undef UART_MODE_DEFAULT
+#define UART_MODE_DEFAULT 2 //!< 0:Transparent, 1:Ascii format, 2:Binary
+#undef NWK_LAYER
 #endif
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
 /****************************************************************************/
-
-/**
- * 分割パケットを管理する構造体
- */
-typedef struct {
-	bool_t bPktStatus[SERCMD_SER_PKTNUM]; //!< パケットの受信フラグ（全部１になれば完了）
-	uint8 u8PktNum; //!< 分割パケット数
-	uint16 u16DataLen; //!< データ長
-
-	uint8 u8RespID; //!< 応答を返すためのID(外部から指定される値)
-	uint8 u8ReqNum; //!< 内部管理の送信ID
-	uint8 u8Seq; //!< パケットのシーケンス番号（先頭）
-
-	bool_t bResponse; //!< 応答返すかどうかのフラグ
-
-	uint32 u32Tick; //!< タイムスタンプ
-
-	uint8 u8IdSender; //!< 送り元簡易アドレス
-	uint8 u8IdReceiver; //!< 宛先簡易アドレス
-	uint32 u32SrcAddr; //!< 送り元拡張アドレス
-	uint32 u32DstAddr; //!< 宛先拡張アドレス
-
-	bool_t bParallel; //!< bWaitComplete を有効化させるかのフラグ
-	bool_t bWaitComplete; //!< 終了フラグ
-
-	bool_t bRelayPacket; //!< 中継パケットが含まれる？この場合再中継しない。
-} tsSerSeq;
 
 /****************************************************************************/
 /***        Exported Functions                                            ***/

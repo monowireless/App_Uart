@@ -63,3 +63,31 @@ const uint8 au8IoModeTbl_To_LogicalID[8] = {
 	254 // Dedicated ROUTER
 };
 
+
+/**
+ * シリアルポートの構造体
+ *   (serial.c の内部構造体でアクセスできないのでここで定義)
+ */
+typedef struct
+{
+    tsQueue sRxQueue; 				/** RX Queue */
+    tsQueue sTxQueue; 				/** TX Queue */
+    uint16 u16AHI_UART_RTS_LOW;  	/** RTS Low Mark */
+    uint16 u16AHI_UART_RTS_HIGH; 	/** RTS High Mark */
+} tsSerialPort_redef;
+extern tsSerialPort_redef asSerialPorts[];
+
+/**
+ * UARTのFIFOキュー(RX)にあるカウント数を取得する
+ */
+uint16 SERIAL_u16RxQueueCount(uint8 u8port) {
+	return QUEUE__u16Count(&asSerialPorts[u8port].sRxQueue);
+}
+
+/**
+ * UARTのFIFOキュー(TX)にあるカウント数を取得する
+ */
+uint16 SERIAL_u16TxQueueCount(uint8 u8port) {
+	return QUEUE__u16Count(&asSerialPorts[u8port].sTxQueue);
+}
+
