@@ -77,6 +77,12 @@ enum {
 #define IS_APPCONF_OPT_NO_TX_RESULT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_NO_TX_RESULT) //!< E_APPCONF_OPT_NO_TX_RESULT 判定 @ingroup FLASH
 
 /**
+ * 書式モード <-> プロンプト無しチャットモードで通信する
+ */
+#define E_APPCONF_OPT_FORMAT_TO_NOPROMPT 0x2000UL
+#define IS_APPCONF_OPT_FORMAT_TO_NOPROMPT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_FORMAT_TO_NOPROMPT) //!< E_APPCONF_OPT_NO_TX_RESULT 判定 @ingroup FLASH
+
+/**
  * UART ボーレート設定の強制
  */
 #define E_APPCONF_OPT_UART_FORCE_SETTINGS 0x10000UL

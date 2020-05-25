@@ -55,6 +55,7 @@
 #define ToCoNet_USE_MOD_NWK_LAYERTREE
 #define ToCoNet_USE_MOD_NBSCAN
 #define ToCoNet_USE_MOD_NBSCAN_SLAVE
+#define ToCoNet_USE_MOD_DUPCHK
 #endif
 
 // includes
@@ -62,6 +63,10 @@
 #include "ToCoNet_mod_prototype.h"
 
 #include "app_event.h"
+
+/** TOCONET の DUPCHK を使用する */
+#define USE_TOCONET_DUPCHK
+//#define FIX_DUPCHK_L106S // ToCoNet 1.0.6 での振る舞いに対応する
 
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
@@ -72,10 +77,6 @@
 #warning "DEBUG_RTS"
 #define DEBUG_RTS_LED 15
 #endif
-
-/** TOCONET の DUPCHK を使用する */
-#define USE_TOCONET_DUPCHK
-//#define FIX_DUPCHK_L106S // ToCoNet 1.0.6 での振る舞いに対応する
 
 /****************************************************************************/
 /***        Type Definitions                                              ***/
@@ -298,7 +299,10 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg) {
 					// 中継機もこのパケットを同様に４回送信する。このため、複数の中継機が
 					// 同一電波範囲内にある事を想定してデフォルトは大きな値になっている。
 					// 本アプリは中継機無しを想定しているので、値を小さくし応答性を重視する。
-
+#ifndef OLDNET
+				sAppData.sNwkLayerTreeConfig.u8StartOpt = TOCONET_MOD_LAYERTREE_STARTOPT_NB_BEACON;				// ビーコン方式のネットワークを使用する
+				sAppData.sNwkLayerTreeConfig.u8Second_To_Beacon = TOCONET_MOD_LAYERTREE_DEFAULT_BEACON_DUR;		// set NB beacon interval
+#endif
 				// 設定を行う
 				if (!sAppData.pContextNwk) {
 					sAppData.pContextNwk = ToCoNet_NwkLyTr_psConfig(&sAppData.sNwkLayerTreeConfig);
@@ -1979,7 +1983,16 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 	// sSerSeqTx は分割パケットの管理構造体
 	memset(&sSerSeqTx, 0, sizeof(sSerSeqTx)); // ゼロクリアしておく
 	sSerSeqTx.u8IdSender = sAppData.u8AppLogicalId;
-	sSerSeqTx.u8IdReceiver = u8AddrDst;
+
+	if( IS_APPCONF_OPT_FORMAT_TO_NOPROMPT() && (au8UartModeToTxCmdId[sAppData.u8uart_mode] == 1 || au8UartModeToTxCmdId[sAppData.u8uart_mode] == 3 )){
+		if(IS_LOGICAL_ID_CHILD(sAppData.u8AppLogicalId) && u8AddrDst == LOGICAL_ID_BROADCAST){
+			sSerSeqTx.u8IdReceiver = 0x00;		// 自分が子機だったら親機にする
+		}else{
+			sSerSeqTx.u8IdReceiver = u8AddrDst;		// 自分が親機だったら指定のIDにする
+		}
+	}else{
+		sSerSeqTx.u8IdReceiver = u8AddrDst;
+	}
 
 	sSerSeqTx.u8PktNum = (u16len - 1) / SERCMD_SER_PKTLEN + 1; // 1...80->1, 81...160->2, ...
 	sSerSeqTx.u16DataLen = u16len;
@@ -2117,7 +2130,17 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		au8TxCbId_to_RespID[sTx.u8CbId] = sSerSeqTx.u8RespID;
 
 		// UARTモード間で混在しないように sTx.u8Cmd の値を変えておく
-		sTx.u8Cmd = au8UartModeToTxCmdId[sAppData.u8uart_mode];
+		if( IS_APPCONF_OPT_FORMAT_TO_NOPROMPT() ){
+			if( au8UartModeToTxCmdId[sAppData.u8uart_mode] == 1 ){
+				sTx.u8Cmd = 3;		// 書式モードならプロンプト無しに化ける
+			}else if( au8UartModeToTxCmdId[sAppData.u8uart_mode] == 3 ){
+				sTx.u8Cmd = 1;		// プロンプト無しなら書式に化ける
+			}else{
+				sTx.u8Cmd = au8UartModeToTxCmdId[sAppData.u8uart_mode];
+			}
+		}else{
+			sTx.u8Cmd = au8UartModeToTxCmdId[sAppData.u8uart_mode];
+		}
 
 		// ペイロードを構成
 		S_OCTET(sAppData.u8AppIdentifier);
@@ -2141,7 +2164,11 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 		uint8 u8pktinfo = (i << 4) + sSerSeqTx.u8PktNum;
 		S_OCTET(u8pktinfo); //トータルパケット数とパケット番号
 
-		S_OCTET(u8Opt); // ペイロードのオプション(コマンド、など)
+		if( IS_APPCONF_OPT_FORMAT_TO_NOPROMPT() && au8UartModeToTxCmdId[sAppData.u8uart_mode] == 3 ){
+			S_OCTET(0xA0);
+		}else{
+			S_OCTET(u8Opt); // ペイロードのオプション(コマンド、など)
+		}
 
 		uint8 u8len_data = (u16len >= SERCMD_SER_PKTLEN) ? SERCMD_SER_PKTLEN : u16len;
 

@@ -1,0 +1,52 @@
+// .vscode/tasks.json
+{
+    "version": "2.0.0",
+    "tasks": [
+	 {
+            "label": "Build App_Uart,Master (BLUE,CONFIG_NORMAL)",
+            "type": "shell",
+            "windows": {
+                "command": "make",
+                "args": [ "TWELITE=BLUE", "APP_UART_CONFIG=CONFIG_NORMAL",  "clean", "all" ],
+                "options": { "env": { "PATH": "${workspaceRoot}\\..\\..\\Tools\\MinGW\\msys\\1.0\\bin" } }
+            },
+            "linux": {
+                "command": "sh",
+                "args": [
+                    "${workspaceRoot}/../../Tools/VSCode/bin/cleanbuild.sh",
+                    "TWELITE=BLUE", "APP_UART_CONFIG=CONFIG_NORMAL",  "" ]
+            },
+            "osx": {
+                "command": "sh",
+                "args": [
+                    "${workspaceRoot}/../../Tools/VSCode/bin/cleanbuild.sh",
+                    "TWELITE=BLUE", "APP_UART_CONFIG=CONFIG_NORMAL",  "" ]
+            },
+            "problemMatcher": { "base": "$gcc", "fileLocation": [ "absolute" ] },
+            "options": { "cwd": "${workspaceRoot}/Master/Build" }
+        }
+	, {
+            "label": "Build App_Uart,Master (RED,CONFIG_NORMAL)",
+            "type": "shell",
+            "windows": {
+                "command": "make",
+                "args": [ "TWELITE=RED", "APP_UART_CONFIG=CONFIG_NORMAL",  "clean", "all" ],
+                "options": { "env": { "PATH": "${workspaceRoot}\\..\\..\\Tools\\MinGW\\msys\\1.0\\bin" } }
+            },
+            "linux": {
+                "command": "sh",
+                "args": [
+                    "${workspaceRoot}/../../Tools/VSCode/bin/cleanbuild.sh",
+                    "TWELITE=RED", "APP_UART_CONFIG=CONFIG_NORMAL",  "" ]
+            },
+            "osx": {
+                "command": "sh",
+                "args": [
+                    "${workspaceRoot}/../../Tools/VSCode/bin/cleanbuild.sh",
+                    "TWELITE=RED", "APP_UART_CONFIG=CONFIG_NORMAL",  "" ]
+            },
+            "problemMatcher": { "base": "$gcc", "fileLocation": [ "absolute" ] },
+            "options": { "cwd": "${workspaceRoot}/Master/Build" }
+        }
+    ]
+}
