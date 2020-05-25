@@ -1,7 +1,8 @@
 VERSION_MAIN = 1
 VERSION_SUB  = 2
-VERSION_VAR  = 7
+VERSION_VAR  = 10
 
+#1.2.10 カスタムデフォルトの内容が一部反映されていなかった
 #1.2.7 SDKリリースバージョン
 #1.2.5 v1.2 テスト終了
 #1.2.4 テスト中の修正

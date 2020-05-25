@@ -397,7 +397,6 @@ void cbAppColdStart(bool_t bStart) {
 		// デフォルト値を格納する
 		vConfig_SetDefaults(&(sAppData.sFlash.sData));
 
-
 		// load flash value
 		tsFlash sSettingFlash;
 		sAppData.bFlashLoaded = bFlash_Read(&sSettingFlash, FLASH_SECTOR_NUMBER - 1, 0);
@@ -411,14 +410,15 @@ void cbAppColdStart(bool_t bStart) {
 
 		if (sAppData.bFlashLoaded) {
 			sAppData.sFlash = sSettingFlash; // フラッシュからロードした設定を採用
-			sToCoNet_AppContext.u32AppId = sAppData.sFlash.sData.u32appid;
-			// sToCoNet_AppContext.u8Channel = sAppData.sFlash.sData.u8ch; // チャネルマネージャで決定するので設定不要
-			sToCoNet_AppContext.u32ChMask = sAppData.sFlash.sData.u32chmask;
-			sToCoNet_AppContext.u8TxPower = sAppData.sFlash.sData.u16power & 0x000F; // 出力設定
-#ifdef JN514x
-			sToCoNet_AppContext.u8HigherDataRate = (sAppData.sFlash.sData.u16power & 0xF000) >> 12; // 高速モード
-#endif
 		}
+
+		sToCoNet_AppContext.u32AppId = sAppData.sFlash.sData.u32appid;
+		// sToCoNet_AppContext.u8Channel = sAppData.sFlash.sData.u8ch; // チャネルマネージャで決定するので設定不要
+		sToCoNet_AppContext.u32ChMask = sAppData.sFlash.sData.u32chmask;
+		sToCoNet_AppContext.u8TxPower = sAppData.sFlash.sData.u16power & 0x000F; // 出力設定
+#ifdef JN514x
+		sToCoNet_AppContext.u8HigherDataRate = (sAppData.sFlash.sData.u16power & 0xF000) >> 12; // 高速モード
+#endif
 
 		// ROLE から eNwkMode を設定
 		if (APPCONF_ROLE() <= E_APPCONF_ROLE_MAC_NODE_MAX) {
@@ -450,24 +450,22 @@ void cbAppColdStart(bool_t bStart) {
 			}
 		}
 
-		// other hardware
+		// 他のハードウェアの初期化
 		vInitHardware(FALSE);
 
-		// 論理IDをフラッシュ設定した場合
-		if (sAppData.bFlashLoaded) {
-			// 子機IDを設定した場合
-			//if (IS_LOGICAL_ID_CHILD(sAppData.sFlash.sData.u8id)) {
-			//	sAppData.u8Mode = E_IO_MODE_CHILD; // 子機に強制する場合はコメントアウト
-			//}
-			// 親機
-			if (sAppData.sFlash.sData.u8id == 121) {
-				sAppData.u8Mode = E_IO_MODE_PARNET; // 親機のモード番号
-			}
-			// 中継機
-			if (sAppData.sFlash.sData.u8id == LOGICAL_ID_REPEATER
-				|| sAppData.sFlash.sData.u8id == 122) { // 他のアプリでは 122 にしているため、統一
-				sAppData.u8Mode = E_IO_MODE_REPEATER; // 親機のモード番号
-			}
+		/// 論理IDをフラッシュ設定した場合
+		// 子機IDを設定した場合
+		//if (IS_LOGICAL_ID_CHILD(sAppData.sFlash.sData.u8id)) {
+		//	sAppData.u8Mode = E_IO_MODE_CHILD; // 子機に強制する場合はコメントアウト
+		//}
+		// 親機
+		if (sAppData.sFlash.sData.u8id == 121) {
+			sAppData.u8Mode = E_IO_MODE_PARNET; // 親機のモード番号
+		}
+		// 中継機
+		if (sAppData.sFlash.sData.u8id == LOGICAL_ID_REPEATER
+			|| sAppData.sFlash.sData.u8id == 122) { // 他のアプリでは 122 にしているため、統一
+			sAppData.u8Mode = E_IO_MODE_REPEATER; // 親機のモード番号
 		}
 
 #ifdef NWK_LAYER_FORCE
@@ -499,9 +497,8 @@ void cbAppColdStart(bool_t bStart) {
 		case E_IO_MODE_CHILD:
 		case E_IO_MODE_REPEAT_CHILD:
 			// 子機IDはフラッシュ値が設定されていれば、これを採用
-			if (sAppData.bFlashLoaded) {
-				sAppData.u8AppLogicalId = sAppData.sFlash.sData.u8id;
-			}
+			sAppData.u8AppLogicalId = sAppData.sFlash.sData.u8id;
+
 			// 値が子機のID範囲外ならデフォルト値を設定する (120=0x78)
 			if (!IS_LOGICAL_ID_CHILD(sAppData.u8AppLogicalId)) {
 				sAppData.u8AppLogicalId = au8IoModeTbl_To_LogicalID[E_IO_MODE_CHILD];
@@ -993,7 +990,7 @@ PRIVATE void vInitHardware(int f_warm_start) {
 
 		// BAUD ピンが GND になっている場合、かつフラッシュの設定が有効な場合は、設定値を採用する (v1.0.3)
 #ifdef USE_BPS_PIN
-		if (sAppData.bFlashLoaded && (bPortRead(PORT_BAUD) || IS_APPCONF_OPT_UART_FORCE_SETTINGS())) {
+		if (bPortRead(PORT_BAUD) || IS_APPCONF_OPT_UART_FORCE_SETTINGS()) {
 			u32baud = sAppData.sFlash.sData.u32baud_safe;
 			sUartOpt.bHwFlowEnabled = FALSE;
 			sUartOpt.bParityEnabled = UART_PARITY_ENABLE;

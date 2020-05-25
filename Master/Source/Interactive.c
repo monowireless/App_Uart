@@ -175,7 +175,7 @@ void vConfig_SetDefaults(tsFlashApp *p) {
 		p->u32chmask = CHMASK;
 		p->u8ch = CHANNEL;
 		p->u16power = 3;
-		p->u8id = 0x00;
+		p->u8id = LOGICAL_ID_CHILDREN; // デフォルトは子機
 		p->u8role = E_APPCONF_ROLE_MAC_NODE;
 		p->u8layer = 1;
 
@@ -661,9 +661,9 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 			if (u32val == 0x00) {
 				sAppData.sConfig_UnSaved.u8id = 121;
 			} else if (u32val == 0x78) {
-				sAppData.sConfig_UnSaved.u8id = 0; // 未設定
+				sAppData.sConfig_UnSaved.u8id = LOGICAL_ID_CHILDREN; // デフォルト子機
 			} else {
-				sAppData.sConfig_UnSaved.u8id = u32val; // ０は未設定！
+				sAppData.sConfig_UnSaved.u8id = u32val;
 			}
 			if (u32val != 0xFF) {
 				V_PRINT("%d(0x%02x)"LB, u32val, u32val);
