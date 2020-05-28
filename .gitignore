@@ -1,0 +1,5 @@
+# ignore file
+*.d
+*.bin
+*.o
+objs*/
