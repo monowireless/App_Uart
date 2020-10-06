@@ -177,6 +177,8 @@ const uint8 au8UartModeToTxCmdId[] = {
  * TOCONET DUPCHK の初期化
  */
 static void vInitDupChk() {
+//	TOCONET_DUPCHK_TICK_SCALE = 0x85;
+	TOCONET_DUPCHK_TIMEOUT_ms = 1024;
 	TOCONET_DUPCHK_DECLARE_CONETXT(DUPCHK,40); //!< 重複チェック
 	psDupChk = ToCoNet_DupChk_psInit(DUPCHK);
 }
@@ -770,6 +772,12 @@ void cbToCoNet_vHwEvent(uint32 u32DeviceId, uint32 u32ItemBitmap) {
 			// 送信要求を MAC 層に伝える
 			if (!IS_APPCONF_OPT_TX_TRIGGER_CHAR() || bPendingTxOnTransparent) {
 				i16Transmit_Transparent();
+			}
+		}
+
+		if( IS_APPCONF_OPT_M3_SLEEP_AT_ONCE() ){
+			if( bPortRead(PORT_SLEEP) ){
+				vSleep();
 			}
 		}
 		break;

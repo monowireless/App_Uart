@@ -133,7 +133,12 @@ bool_t bSerCmd_SetModuleSetting(uint8 *p, uint8 u8len) {
 		break;
 
 	case E_APPCONF_ID:
-		if (u8len >= 1) FL_UNSAVE_u8(id)= G_OCTET(); else bRet = FALSE;
+		if (u8len >= 1){
+			uint8 u8id = G_OCTET();
+			FL_UNSAVE_u8(id)= ((u8id == 0) ? 121 : u8id);
+		}else{
+			bRet = FALSE;
+		}
 		break;
 
 	case E_APPCONF_POWER:

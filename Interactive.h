@@ -56,6 +56,11 @@ enum {
 #define E_APPCONF_OPT_DISABLE_PULL_UP_DI_PIN 0x2UL
 #define IS_APPCONF_OPT_DISABLE_PULL_UP_DI_PIN() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_DISABLE_PULL_UP_DI_PIN) //!< E_APPCONF_OPT_DISABLE_PULL_UP_DI_PIN 判定 @ingroup FLASH
 
+/**
+ * 透過モードで、改行コード (0x0D) で送信を行うオプション(それまでは何もしない)
+ */
+#define E_APPCONF_OPT_M3_SLEEP_AT_ONCE 0x4UL
+#define IS_APPCONF_OPT_M3_SLEEP_AT_ONCE() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_M3_SLEEP_AT_ONCE) //!< E_APPCONF_OPT_M3_SLEEP_AT_ONCE 判定 @ingroup FLASH
 
 /**
  * 透過モードで、改行コード (0x0D) で送信を行うオプション(それまでは何もしない)
