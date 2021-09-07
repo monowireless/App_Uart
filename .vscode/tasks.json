@@ -1,32 +1,27 @@
 // .vscode/tasks.json
 {
     "version": "2.0.0",
-    // "windows": { "options": { "shell": { "executable": "bash.exe", "args": ["-c", "-l"] } } },
+    "windows": { "options": { "shell": { "executable": "cmd.exe", "args": ["/c"] } } },
     "tasks": [
         {
-            "label": "Full Clean",
+            "label": "App_Uart Clean",
             "type": "shell",
             "windows": {
                 "command": "sh",
                 "args": [
                     "-c", "rm -rfv objs_*"
-                ],
-                "options": {
-                    "env": {
-                        "PATH": "..\\..\\..\\Tools\\MinGW\\msys\\1.0\\bin"
-                    }
-                }
+                ]
             },
             "linux": {
-                "command": "sh",
+                "command": "rm",
                 "args": [
-                    "-l", "-c", "rm -rfv objs_*"
+                    "-rfv", "objs_*"
                 ]
             },
             "osx": {
-                "command": "sh",
+                "command": "rm",
                 "args": [
-                    "-l", "-c", "rm -rfv objs_*"
+                    "-rfv", "objs_*"
                 ]
             },
             "problemMatcher": {
@@ -36,7 +31,39 @@
                 ]
             },
             "options": {
-                "cwd": "${workspaceRoot}/build"
+                "cwd": "${workspaceRoot}/App_Uart/build"
+            },
+            "group": "build"
+        },
+        {
+            "label": "App_Uart_TWELITEUART Clean",
+            "type": "shell",
+            "windows": {
+                "command": "sh",
+                "args": [
+                    "-c", "rm -rfv objs_*"
+                ]
+            },
+            "linux": {
+                "command": "rm",
+                "args": [
+                    "-rfv", "objs_*"
+                ]
+            },
+            "osx": {
+                "command": "rm",
+                "args": [
+                    "-rfv", "objs_*"
+                ]
+            },
+            "problemMatcher": {
+                "base": "$gcc",
+                "fileLocation": [
+                    "absolute"
+                ]
+            },
+            "options": {
+                "cwd": "${workspaceRoot}/App_Uart_TWELITEUART/build"
             },
             "group": "build"
         },
@@ -46,26 +73,21 @@
             "windows": {
                 "command": "sh",
                 "args": [
-                    "-c", "make TWELITE=BLUE 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
-                ],
-                "options": {
-                    "env": {
-                        "PATH": "..\\..\\..\\Tools\\MinGW\\msys\\1.0\\bin"
-                    }
-                }
+                    "-c", "make ${env:MWSDK_MAKE_JOBS} ${env:MWSDK_MAKE_DISABLE_LTO} TWELITE=BLUE 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
+                ]
             },
             "linux": {
-                "command": "sh",
+                "command": "make",
                 "args": [
-                    "-l", "-c", "make",
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
                     "TWELITE=BLUE",
                     ""
                 ]
             },
             "osx": {
-                "command": "sh",
+                "command": "make",
                 "args": [
-                    "-l", "-c", "make",
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
                     "TWELITE=BLUE",
                     ""
                 ]
@@ -77,7 +99,46 @@
                 ]
             },
             "options": {
-                "cwd": "${workspaceRoot}/build"
+                "cwd": "${workspaceRoot}/App_Uart/build"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Build for TWELITE UART BLUE",
+            "type": "shell",
+            "windows": {
+                "command": "sh",
+                "args": [
+                    "-c", "make ${env:MWSDK_MAKE_JOBS} ${env:MWSDK_MAKE_DISABLE_LTO} TWELITE=BLUE 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
+                ]
+            },
+            "linux": {
+                "command": "make",
+                "args": [
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=BLUE",
+                    ""
+                ]
+            },
+            "osx": {
+                "command": "make",
+                "args": [
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=BLUE",
+                    ""
+                ]
+            },
+            "problemMatcher": {
+                "base": "$gcc",
+                "fileLocation": [
+                    "absolute"
+                ]
+            },
+            "options": {
+                "cwd": "${workspaceRoot}/App_Uart_TWELITEUART/build"
             },
             "group": {
                 "kind": "build",
@@ -90,25 +151,22 @@
             "windows": {
                 "command": "sh",
                 "args": [
-                    "-c", "make TWELITE=RED 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
-                ],
-                "options": {
-                    "env": {
-                        "PATH": "..\\..\\..\\Tools\\MinGW\\msys\\1.0\\bin"
-                    }
-                }
+                    "-c", "make ${env:MWSDK_MAKE_JOBS}  ${env:MWSDK_MAKE_DISABLE_LTO} TWELITE=RED 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
+                ]
             },
             "linux": {
                 "command": "make",
                 "args": [
-                    "-l", "-c", "TWELITE=RED",
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=RED",
                     ""
                 ]
             },
             "osx": {
                 "command": "make",
                 "args": [
-                    "-l", "-c", "TWELITE=RED",
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=RED",
                     ""
                 ]
             },
@@ -119,7 +177,43 @@
                 ]
             },
             "options": {
-                "cwd": "${workspaceRoot}/build"
+                "cwd": "${workspaceRoot}/App_Uart/build"
+            },
+            "group": "build"
+        },
+        {
+            "label": "Build for TWELITE UART RED",
+            "type": "shell",
+            "windows": {
+                "command": "sh",
+                "args": [
+                    "-c", "make ${env:MWSDK_MAKE_JOBS}  ${env:MWSDK_MAKE_DISABLE_LTO} TWELITE=RED 2>&1 | sed -E -e s#\\(/mnt\\)?/\\([a-zA-Z]\\)/#\\\\\\2:/#g"
+                ]
+            },
+            "linux": {
+                "command": "make",
+                "args": [
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=RED",
+                    ""
+                ]
+            },
+            "osx": {
+                "command": "make",
+                "args": [
+                    "${env:MWSDK_MAKE_JOBS}", "${env:MWSDK_MAKE_DISABLE_LTO}",
+                    "TWELITE=RED",
+                    ""
+                ]
+            },
+            "problemMatcher": {
+                "base": "$gcc",
+                "fileLocation": [
+                    "absolute"
+                ]
+            },
+            "options": {
+                "cwd": "${workspaceRoot}/App_Uart_TWELITEUART/build"
             },
             "group": "build"
         }
