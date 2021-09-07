@@ -128,6 +128,7 @@ typedef struct {
 #define UART_MODE_BINARY 2
 #define UART_MODE_CHAT 3
 #define UART_MODE_CHAT_NO_PROMPT 4
+#define UART_MODE_CHAT_HEADER 5
 
 /****************************************************************************
  * フラッシュ設定情報

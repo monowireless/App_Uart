@@ -13,6 +13,7 @@
 #define INTERACTIVE_H_
 
 #include "flash.h"
+#include "input_string.h"
 
 void vConfig_SetDefaults(tsFlashApp *p);
 void vConfig_UnSetAll(tsFlashApp *p);
@@ -76,6 +77,12 @@ enum {
 #define IS_APPCONF_OPT_TX_NEWER() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_TX_NEWER) //!< E_APPCONF_OPT_TX_NEWER 判定 @ingroup FLASH
 
 /**
+ * mode=D にて、ヘッダ出力を有効にする
+ */
+#define E_APPCONF_OPT_MODE_D_HEADER 0x400UL
+#define IS_APPCONF_OPT_MODE_D_HEADER() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_MODE_D_HEADER) //!< E_APPCONF_OPT_MODE_D_HEADER 判定 @ingroup FLASH
+
+/**
  * 書式モードで送信完了の応答メッセージを表示しない
  */
 #define E_APPCONF_OPT_NO_TX_RESULT 0x1000UL
@@ -86,6 +93,12 @@ enum {
  */
 #define E_APPCONF_OPT_FORMAT_TO_NOPROMPT 0x2000UL
 #define IS_APPCONF_OPT_FORMAT_TO_NOPROMPT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_FORMAT_TO_NOPROMPT) //!< E_APPCONF_OPT_NO_TX_RESULT 判定 @ingroup FLASH
+
+/**
+ * 高頻度で通信するために重複チェッカーを緩くする
+ */
+#define E_APPCONF_OPT_HIGHFREQ_TRANSMIT 0x4000UL
+#define IS_APPCONF_OPT_HIGHFREQ_TRANSMIT() (sAppData.sFlash.sData.u32Opt & E_APPCONF_OPT_HIGHFREQ_TRANSMIT) //!< E_APPCONF_OPT_HIGHFREQ_TRANSMIT 判定 @ingroup FLASH
 
 /**
  * UART ボーレート設定の強制

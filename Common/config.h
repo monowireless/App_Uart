@@ -52,7 +52,7 @@ extern "C" {
 // その他の設定
 #define USE_MODE_PIN
 #define USE_BPS_PIN
-#define UART_MODE_DEFAULT 3 //!< 0:Transparent, 1:Ascii format, 2:Binary, 3:Chat
+#define UART_MODE_DEFAULT 5 //!< 0:Transparent, 1:Ascii format, 2:Binary, 3:Chat 4:No prompt 5:Header
 
 #define DEFAULT_TX_FFFF_COUNT 0x82 //!< デフォルトの再送回数
 #define DEFAULT_TX_FFFF_DUR_ms 4 //!< 再送時の間隔
@@ -64,7 +64,7 @@ extern "C" {
 #define USE_AES //!< AES を利用する
 #define USE_DIO_SLEEP //!< IOポート監視スリープを利用する
 
-#define DEFAULT_OPT_BITS 0x00000000UL //!< デフォルトのオプションビット
+#define DEFAULT_OPT_BITS 0x00000100UL //!< デフォルトのオプションビット
 
 /* このセットでは、
  *   UART1, 38400bps 8N1 で動作させる

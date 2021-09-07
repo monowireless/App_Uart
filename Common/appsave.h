@@ -8,7 +8,7 @@
 #include <jendefs.h>
 
 #define FLASH_APP_AES_KEY_SIZE 16
-#define FLASH_APP_HANDLE_NAME_LEN 23
+#define FLASH_APP_HANDLE_NAME_LEN 48
 
 /** @ingroup FLASH
  * フラッシュ格納データ構造体

@@ -19,7 +19,14 @@
 #define PORT_OUT3 4
 #define PORT_OUT4 9
 
+#ifndef TWELITEUART
 #define PORT_INPUT1 12
+#else
+// TWELITE UART の時は SETピンをEX1として使用するので DIO0 と入れ替える
+#warning "IO CONF IS FOR TWELITE UART"
+#define PORT_INPUT1 0
+#endif
+
 #define PORT_INPUT2 13
 #define PORT_INPUT3 11
 #define PORT_INPUT4 16
@@ -30,7 +37,14 @@
 
 #define PORT_BAUD 17
 
+#ifndef TWELITEUART
 #define PORT_CONF_EX1 0
+#else
+// TWELITE UART の時は SETピンをEX1として使用するので入れ替える
+#warning "IO CONF IS FOR TWELITE UART"
+#define PORT_CONF_EX1 12
+#endif
+
 #define PORT_CONF_EX2 1
 
 #define PORT_OUT_MASK ((1UL << PORT_OUT1) | (1UL << PORT_OUT2) | (1UL << PORT_OUT3) | (1UL << PORT_OUT4))

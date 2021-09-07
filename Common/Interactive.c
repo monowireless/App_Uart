@@ -145,17 +145,19 @@ void vConfig_SetDefaults(tsFlashApp *p) {
 		p->u32baud_safe = UART_BAUD_SAFE;
 		p->u8parity = 0; // none
 
-		p->u8uart_mode = UART_MODE_DEFAULT; // chat
+		p->u8uart_mode = UART_MODE_DEFAULT; // header
 
-		p->u16uart_lnsep = 0x0D; // 行セパレータ
+		p->u16uart_lnsep = 0x0D0A; // 行セパレータ
 		p->u8uart_lnsep_minpkt = 0; // 最小パケットサイズ
-		p->u8uart_txtrig_delay = 100; // 待ち時間による送信トリガー
-
+		p->u8uart_txtrig_delay = 0; // 待ち時間による送信トリガー
+		p->u32Opt = DEFAULT_OPT_BITS;		// ヘッダ出力有効、トリガー文字有効
 		memset(p->au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
+
+		uint8* header = (uint8*)";U;%t;%i;0x%A;%q;%s;<*>;%X;\\n";
 		memset(p->au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
+		memcpy(p->au8ChatHandleName, header, strlen((void*)header));
 
 		p->u8Crypt = 0;
-		p->u32Opt = DEFAULT_OPT_BITS;
 
 		sAppData.bCustomDefaults = FALSE;
 	}
@@ -372,8 +374,10 @@ void vProcessInputByte(uint8 u8Byte) {
 	case 'm': // モードの変更
 		V_PRINT("UART mode"LB);
 		V_PRINT("  A: ASCII, B: Binary formatted"LB);
-		V_PRINT("  C: Chat (TXonCR), D: Chat (TXonPAUSE, no prompt)"LB);
-		V_PRINT("  T: Transparent"LB);
+//		V_PRINT("  C: Chat (TXonCR), D: Chat (TXonPAUSE, no prompt)"LB);
+		V_PRINT("  C: Chat (TXonCR), D: Transparent"LB);
+//		V_PRINT("  T: Transparent"LB);
+		V_PRINT("  E: Header formatted"LB);
 		V_PRINT("Input: ");
 
 		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, 1, E_APPCONF_UART_MODE);
@@ -389,8 +393,16 @@ void vProcessInputByte(uint8 u8Byte) {
 		break;
 
 	case 'h':
-		V_PRINT("Input Handle Name (Chat mode): ");
-		INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, FLASH_APP_HANDLE_NAME_LEN, E_APPCONF_HANDLE_NAME);
+		_C{
+			uint8 u8mode_uart = FL_IS_MODIFIED_u8(uart_mode) ? FL_UNSAVE_u8(uart_mode) : FL_MASTER_u8(uart_mode);
+
+			if( u8mode_uart == UART_MODE_CHAT ){
+				V_PRINT("Input Handle Name: ");
+			}else{
+				V_PRINT("Input Header Format (header mode): ");
+			}
+			INPSTR_vStart(&sSerInpStr, E_INPUTSTRING_DATATYPE_STRING, FLASH_APP_HANDLE_NAME_LEN, E_APPCONF_HANDLE_NAME);
+		}
 		break;
 
 	case 'C':
@@ -716,7 +728,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 
 			if (pu8str[0] == 'T' || pu8str[0] == 't') {
 				sAppData.sConfig_UnSaved.u8uart_mode = UART_MODE_TRANSPARENT;
-				V_PRINT("Transparent mode"LB);
+				V_PRINT("Transparent mode (Pairing)"LB);
 			} else if (pu8str[0] == 'A' || pu8str[0] == 'a') {
 				sAppData.sConfig_UnSaved.u8uart_mode = UART_MODE_ASCII;
 				V_PRINT("Modbus ASCII mode"LB);
@@ -728,7 +740,11 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 				V_PRINT("Chat mode"LB);
 			} else if (pu8str[0] == 'D' || pu8str[0] == 'd') {
 				sAppData.sConfig_UnSaved.u8uart_mode = UART_MODE_CHAT_NO_PROMPT;
-				V_PRINT("Chat mode w/o prompt"LB);
+				V_PRINT("Transparent mode"LB);
+				//V_PRINT("Chat mode w/o prompt"LB);
+			} else if (pu8str[0] == 'E' || pu8str[0] == 'e') {
+				sAppData.sConfig_UnSaved.u8uart_mode = UART_MODE_CHAT_HEADER;
+				V_PRINT("Header formatted mode"LB);
 			} else {
 				V_PRINT("(ignored)");
 			}
@@ -750,7 +766,7 @@ void vProcessInputString(tsInpStr_Context *pContext) {
 					uint32 u32val;
 					if (i == 0) {
 						u32val = u32string2hex(p_tokens[i], l);
-						if (u32val <= 0xFF) {
+						if (u32val <= 0xFFFF) {
 							sAppData.sConfig_UnSaved.u16uart_lnsep = u32val;
 							V_PRINT("0x%02x,", u32val);
 						} else {
@@ -917,26 +933,51 @@ void vSerUpdateScreen() {
 
 	uint8 u8mode_uart;
 	{
-		const uint8 au8name[] = { 'T', 'A', 'B', 'C', 'D' };
+		const uint8 au8name[] = { 'T', 'A', 'B', 'C', 'D', 'E' };
 		u8mode_uart = FL_IS_MODIFIED_u8(uart_mode) ? FL_UNSAVE_u8(uart_mode) : FL_MASTER_u8(uart_mode);
 		V_PRINT(" m: set UART mode (%c)%c" LB,
 					au8name[u8mode_uart],
 					FL_IS_MODIFIED_u8(uart_mode) ? '*' : ' ');
 	}
 
-	if (u8mode_uart == UART_MODE_TRANSPARENT || u8mode_uart == UART_MODE_CHAT_NO_PROMPT) {
-		V_PRINT(" k: set Tx Trigger (sep=0x%02x%s, min_bytes=%d%s dly=%d[ms]%s)" LB,
-				FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep),
-				FL_IS_MODIFIED_u16(uart_lnsep) ? "*" : "",
-				FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? FL_UNSAVE_u8(uart_lnsep_minpkt) : FL_MASTER_u8(uart_lnsep_minpkt),
-				FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? "*" : "",
-				FL_IS_MODIFIED_u8(uart_txtrig_delay) ? FL_UNSAVE_u8(uart_txtrig_delay) : FL_MASTER_u8(uart_txtrig_delay),
-				FL_IS_MODIFIED_u8(uart_txtrig_delay) ? "*" : ""
-		);
+	if (u8mode_uart == UART_MODE_TRANSPARENT || u8mode_uart == UART_MODE_CHAT_NO_PROMPT || u8mode_uart == UART_MODE_CHAT_HEADER) {
+		bool_t bMultiByteTriger = FALSE;
+
+		// トリガー文字が2文字以上かどうか判定する
+		uint16 u16Lnsep = FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep);
+		if( u16Lnsep > 0x00FF ){
+			bMultiByteTriger = TRUE;
+		}
+
+		// トリガー文字が2バイトなら4桁で出力する
+		if( bMultiByteTriger ){
+			V_PRINT(" k: set Tx Trigger (sep=0x%04x%s, min_bytes=%d%s dly=%d[ms]%s)" LB,
+					FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep),
+					FL_IS_MODIFIED_u16(uart_lnsep) ? "*" : "",
+					FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? FL_UNSAVE_u8(uart_lnsep_minpkt) : FL_MASTER_u8(uart_lnsep_minpkt),
+					FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? "*" : "",
+					FL_IS_MODIFIED_u8(uart_txtrig_delay) ? FL_UNSAVE_u8(uart_txtrig_delay) : FL_MASTER_u8(uart_txtrig_delay),
+					FL_IS_MODIFIED_u8(uart_txtrig_delay) ? "*" : ""
+			);
+		}else{
+			V_PRINT(" k: set Tx Trigger (sep=0x%02x%s, min_bytes=%d%s dly=%d[ms]%s)" LB,
+					FL_IS_MODIFIED_u16(uart_lnsep) ? FL_UNSAVE_u16(uart_lnsep) : FL_MASTER_u16(uart_lnsep),
+					FL_IS_MODIFIED_u16(uart_lnsep) ? "*" : "",
+					FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? FL_UNSAVE_u8(uart_lnsep_minpkt) : FL_MASTER_u8(uart_lnsep_minpkt),
+					FL_IS_MODIFIED_u8(uart_lnsep_minpkt) ? "*" : "",
+					FL_IS_MODIFIED_u8(uart_txtrig_delay) ? FL_UNSAVE_u8(uart_txtrig_delay) : FL_MASTER_u8(uart_txtrig_delay),
+					FL_IS_MODIFIED_u8(uart_txtrig_delay) ? "*" : ""
+			);
+		}
 	}
 
 	{
-		V_PRINT(" h: set handle name [%s]%c" LB,
+		if(u8mode_uart == UART_MODE_CHAT){
+			V_PRINT(" h: set handle name");
+		}else{
+			V_PRINT(" h: set header format");
+		}
+		V_PRINT(" [%s]%c" LB,
 			sAppData.sConfig_UnSaved.au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] == 0xFF ?
 				sAppData.sFlash.sData.au8ChatHandleName : sAppData.sConfig_UnSaved.au8ChatHandleName,
 			sAppData.sConfig_UnSaved.au8ChatHandleName[FLASH_APP_HANDLE_NAME_LEN] == 0xFF ? ' ' : '*');
