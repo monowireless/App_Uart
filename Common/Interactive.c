@@ -153,7 +153,7 @@ void vConfig_SetDefaults(tsFlashApp *p) {
 		p->u32Opt = DEFAULT_OPT_BITS;		// ヘッダ出力有効、トリガー文字有効
 		memset(p->au8AesKey, 0, FLASH_APP_AES_KEY_SIZE + 1);
 
-		uint8* header = (uint8*)";U;%t;%i;0x%A;%q;%s;<*>;%X;\\n";
+		uint8* header = (uint8*)";U;%t;%i;0x%A;%q;%s;<*;%X;\\n";
 		memset(p->au8ChatHandleName, 0, FLASH_APP_HANDLE_NAME_LEN + 1);
 		memcpy(p->au8ChatHandleName, header, strlen((void*)header));
 
