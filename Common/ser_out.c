@@ -126,6 +126,11 @@ void vSerOutputFmt(uint8 *pOutputData, uint16 u16len, tsSerSeq *pSerSeqRx,  tsRx
 	do {
 		c = G_OCTET();
 
+		// NULL文字なら抜ける
+		if( c == 0x00 ){
+			break;
+		}
+
 		if (bSglQuote == 1) { // '\\'
 			bSglQuote = 0;
 
@@ -261,10 +266,10 @@ void vSerOutputFmt(uint8 *pOutputData, uint16 u16len, tsSerSeq *pSerSeqRx,  tsRx
 			 */
 			case 'X': case 'x':
 				_C {
-					uint8 x = 0, *r = p_xor_start, *q_end = p_xor_end;
-					if (q_end == NULL) q_end = q;
+					uint8 x = 0, *r = p_xor_start, *p_end = p_xor_end;
+					if (p_end == NULL) p_end = q;
 
-					while (r < q) {
+					while (r < p_end) {
 						x ^= *r;
 						r++;
 					}
