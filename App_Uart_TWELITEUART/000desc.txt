@@ -1,8 +1,10 @@
 [JAPANESE]
 TITLE=シリアル通信アプリ（App_Uart）
-DESC=TWELITE UART用です。
-URL=https://mono-wireless.com/jp/products/TWE-APPS/App_Uart/
+DESC=UART（シリアル）通信を無線化するアプリです。
+TWELITE UART用です。
+URL=https://twelite.gitbook.io/mw-pug-uart/
 [ENGLISH]
 TITLE=App_Uart
-DESC=This application is for TWELITE UART.
-URL=https://mono-wireless.com/jp/products/TWE-APPS/App_Uart/
+DESC=Designed for UART (Serial) communications.
+For the TWELITE UART.
+URL=https://twelite.gitbook.io/mw-pug-uart/
