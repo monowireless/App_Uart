@@ -2143,16 +2143,41 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 	} else {
 		// MAC 直接の送受信
 
+		// 再送回数の設定
+		if (pTxTemplate == NULL) {	// 拡張書式ではない場合
+			// デフォルト設定
+			uint8 u8retry = (sAppData.sFlash.sData.u16power & 0xF0) >> 4;
+			if (sAppData.u8NumChannels > 1) {
+				switch (u8retry) {
+				case 0x0: u8retry = DEFAULT_TX_FFFF_COUNT; break;
+				case 0xF: u8retry = 0x80; break; // 複数チャネル利用時は 0x80 を与えないと１回送信はしない
+				default: u8retry |= 0x80;
+				}
+			} else {
+				switch (u8retry) {
+				case 0x0: u8retry = DEFAULT_TX_FFFF_COUNT; break;
+				case 0xF: u8retry = 0x0; break;
+				default: u8retry |= 0x80;
+				}
+			}
+
+			sTx.u8Retry = u8retry; // 再送回数の設定
+			sTx.u16RetryDur = sSerSeqTx.u8PktNum * 10; // アプリケーション再送間隔はパケット分割数に比例
+			if(IS_APPCONF_OPT_HIGHFREQ_TRANSMIT()){
+				sTx.u16DelayMin = 0;
+				sTx.u16DelayMax = 0;
+
+			}else{
+				sTx.u16DelayMin = 4;
+				sTx.u16DelayMax = 20;
+			}
+		}
+
 		// 送信設定の微調整を行う
 		if (u8Relay) {
-			sTx.u8Retry = DEFAULT_TX_FFFF_COUNT; // ３回送信する
 			sTx.u16DelayMin = DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms; // 中継時の遅延
+			sTx.u16DelayMax = DEFAULT_TX_FFFF_DELAY_ON_REPEAT_ms + 50;
 			sTx.u16RetryDur = sSerSeqTx.u8PktNum * 10; // application retry
-		} else
-		if (pTxTemplate == NULL) {
-			// 簡易書式のデフォルト設定
-			sTx.u8Retry = DEFAULT_TX_FFFF_COUNT; // ３回送信する
-			sTx.u16RetryDur = sSerSeqTx.u8PktNum * 10; // アプリケーション再送間隔はパケット分割数に比例
 		}
 
 		// 宛先情報(指定された宛先に送る)
@@ -2163,28 +2188,11 @@ static int16 i16TransmitSerMsg(uint8 *p, uint16 u16len, tsTxDataApp *pTxTemplate
 			sTx.u32DstAddr  = TOCONET_MAC_ADDR_BROADCAST; // ブロードキャスト
 		}
 
-		if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT
-			|| IS_NO_PROMPT()
-		) {
+		if (sAppData.u8uart_mode == UART_MODE_TRANSPARENT || IS_NO_PROMPT()) {
 			sTx.u16DelayMin = 0; // デフォルトの遅延
 			sTx.u16DelayMax = 0; // デフォルトの遅延
 			sTx.u16RetryDur = 0; // application retry
 
-			uint8 u8retry = (sAppData.sFlash.sData.u16power & 0xF0) >> 4;
-			if (sAppData.u8NumChannels > 1) {
-				switch (u8retry) {
-				case 0x0: u8retry = 0x80; break; // 複数チャネル利用時は 0x80 を与えないと１回送信はしない
-				case 0xF: u8retry = 0x80; break;
-				default: u8retry |= 0x80;
-				}
-			} else {
-				switch (u8retry) {
-				case 0x0: u8retry = 0x0; break;
-				case 0xF: u8retry = 0x0; break;
-				default: u8retry |= 0x80;
-				}
-			}
-			sTx.u8Retry = u8retry; // 再送回数の設定
 			sTx.bAckReq = FALSE; // ACK 無し！
 		}
 	}
