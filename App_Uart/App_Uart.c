@@ -1164,7 +1164,7 @@ void vSerialInit(uint32 u32Baud, tsUartOpt *pUartOpt) {
 
 	// メモリの初期化
 	INPSTR_vInit(&sSerInpStr, &sSerStream);
-	memset(&sSerCmd_P3, 0x00, sizeof(sSerCmd));
+	memset(&sSerCmd_P3, 0x00, sizeof(sSerCmd_P3));
 	memset(&sSerSeqTx, 0x00, sizeof(sSerSeqTx));
 	memset(&sSerSeqRx, 0x00, sizeof(sSerSeqRx));
 
